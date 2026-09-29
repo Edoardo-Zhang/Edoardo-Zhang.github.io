@@ -1,0 +1,142 @@
+@import 'tailwindcss';
+
+@custom-variant short (@media (max-height: 720px));
+@custom-variant tiny (@media (max-height: 560px));
+
+@font-face {
+  font-family: 'Headline Serif';
+  /* Relative to the document (vite base './'), served from public/input-assets */
+  src: url('/input-assets/headline-serif-traced.ttf') format('truetype');
+  font-display: swap;
+}
+
+@theme {
+  /* The traced headline font only ships the glyphs of the headline;
+     missing glyphs (e.g. 作业) fall back to a system serif of similar feel. */
+  --font-headline: 'Headline Serif', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
+  --font-sans: system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --color-forest: #182c41;
+  --color-ink: #070b12;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: #000;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  background: #000;
+  color: #fff;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgb(255 255 255 / 0.25);
+}
+
+/* ---------- Hero root: full viewport, black before video paints ---------- */
+.hero-root {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+  background: #000;
+}
+
+/* ---------- Liquid glass ---------- */
+.liquid-glass {
+  position: relative;
+  isolation: isolate;
+  background-color: rgb(255 255 255 / 0.015);
+  background-blend-mode: luminosity;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.1);
+}
+
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.45) 0%,
+    rgb(255 255 255 / 0.15) 22%,
+    rgb(255 255 255 / 0) 42%,
+    rgb(255 255 255 / 0) 58%,
+    rgb(255 255 255 / 0.15) 78%,
+    rgb(255 255 255 / 0.45) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Slightly denser glass for content cards below the hero */
+.liquid-glass-card {
+  background-color: rgb(255 255 255 / 0.03);
+}
+
+/* ---------- Carriage breathing ---------- */
+@keyframes carriage-breathe {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.03);
+  }
+  50% {
+    transform: translate3d(0, -6px, 0) scale(1.03);
+  }
+}
+
+.carriage {
+  transform: scale(1.03);
+  transform-origin: 50% 50%;
+  animation: carriage-breathe 3s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* ---------- Section anchors ---------- */
+.anchor-section {
+  /* sections already carry >= 6rem top padding, which clears the fixed nav */
+  scroll-margin-top: 0;
+}
+
+/* Hide number spinners / tidy file input */
+input[type='file'] {
+  display: none;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise-in {
+  animation: rise-in 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
