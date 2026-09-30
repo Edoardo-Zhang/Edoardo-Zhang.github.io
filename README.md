@@ -48,7 +48,7 @@ npm install && npm run dev
 - `zuoyexiang/cards/<id>.json` —— 一份作业（科目、逐项内容、截止日期、布置人、附件信息）
 - `zuoyexiang/files/<id>/<n>-<rand>.<ext>` —— 附件原文件（原始文件名保存在卡片 JSON 中）
 
-## 部署到阿里云轻量服务器（Ubuntu）
+## 部署（当前线上：腾讯云轻量服务器 · 上海 · Ubuntu）
 
 1. **控制台**：防火墙放行 TCP 80/443；准备好 OSS 的 RAM 子账号密钥。
 2. **上传代码与产物**：把 `dist/`、`server/`（不含 node_modules）同步到服务器 `/opt/zuoyexiang/`，把 `server/.env`（`chmod 600`）单独传上去。
@@ -62,7 +62,13 @@ npm install && npm run dev
    ```bash
    certbot --nginx -d bitjiaxin.cn -d www.bitjiaxin.cn
    ```
-6. **日常发布**：本地 `npm run build` → 同步 `dist/` → `systemctl restart zuoyexiang`。
+6. **日常发布**（Windows 本机一键）：
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File server/deploy/publish.ps1 -Key "<ssh 私钥路径>"
+   ```
+   构建前端 → 打包上传 → 重装后端依赖 → 重启服务。
+
+线上目录：`/opt/zuoyexiang/{dist,server}`；服务名 `zuoyexiang`（systemd，已设开机自启）。
 
 OSS 侧要求：桶**私有**；CORS 允许站点来源（浏览器直传需要）；RAM 子账号**只授权 `<bucket>/zuoyexiang/*`**。
 
