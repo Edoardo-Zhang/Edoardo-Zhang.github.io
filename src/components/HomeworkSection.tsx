@@ -232,7 +232,7 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [progress, setProgress] = useState<{ index: number; ratio: number } | null>(null)
+  const [progress, setProgress] = useState<{ index: number; ratio: number; attempt: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const itemRefs = useRef<(HTMLTextAreaElement | null)[]>([])
   const focusIndex = useRef<number | null>(null)
@@ -324,12 +324,13 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
     setSubmitting(true)
     setError(null)
     try {
-      const hw = await createHomework({ subject, items: cleanItems, due, author, files }, (index, ratio) =>
-        setProgress({ index, ratio }),
+      const hw = await createHomework({ subject, items: cleanItems, due, author, files }, (index, ratio, attempt) =>
+        setProgress({ index, ratio, attempt }),
       )
       onCreated(hw)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败，请稍后再试')
+      const msg = err instanceof Error ? err.message : '保存失败，请稍后再试'
+      setError(storageMode === 'oss' && files.length > 0 ? `${msg}（本次已上传的附件已回滚，可直接重试）` : msg)
       setSubmitting(false)
       setProgress(null)
     }
@@ -481,7 +482,13 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
                   {f.name}
                 </span>
                 <span className="shrink-0 text-xs text-white/40">
-                  {progress && progress.index === i ? `${Math.round(progress.ratio * 100)}%` : progress && progress.index > i ? '已上传' : formatBytes(f.size)}
+                  {progress && progress.index === i
+                    ? progress.attempt > 1
+                      ? `重试中（第 ${progress.attempt} 次）`
+                      : `${Math.round(progress.ratio * 100)}%`
+                    : progress && progress.index > i
+                      ? '已上传'
+                      : formatBytes(f.size)}
                 </span>
                 {!submitting && (
                   <button
@@ -511,7 +518,7 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
             <span className="h-1 w-24 overflow-hidden rounded-full bg-white/10 sm:w-40">
               <span className="block h-full bg-white/80 transition-[width]" style={{ width: `${overall}%` }} />
             </span>
-            上传中 {overall}%
+            上传中 {overall}%{progress && progress.attempt > 1 ? ` · 第 ${progress.attempt} 次尝试` : ''}
           </div>
         )}
         <button

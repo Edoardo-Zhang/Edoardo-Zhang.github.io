@@ -95,16 +95,65 @@ export function signedUrl(cfg: OssConfig, opts: SignOptions): string {
   return `${cfg.host}/${encodeKey(opts.key)}?${canonicalQuery}&x-oss-signature=${signature}`
 }
 
-export class OssError extends Error {}
+export class OssError extends Error {
+  readonly status: number
+  readonly code?: string
+  /** 4xx（408/429 除外）是永久错误，重试同一个请求没有意义。status 0 = 网络层失败。 */
+  readonly retryable: boolean
+
+  constructor(message: string, status = 0, code?: string) {
+    super(message)
+    this.name = 'OssError'
+    this.status = status
+    this.code = code
+    this.retryable = status === 0 || status === 408 || status === 429 || status >= 500
+  }
+}
+
+const codeRe = /<Code>([^<]+)<\/Code>/
 
 async function explain(res: Response): Promise<never> {
   const text = await res.text().catch(() => '')
-  const code = /<Code>([^<]+)<\/Code>/.exec(text)?.[1]
+  const code = codeRe.exec(text)?.[1]
   const msg = /<Message>([^<]+)<\/Message>/.exec(text)?.[1]
-  throw new OssError(`OSS ${res.status}${code ? ` ${code}` : ''}${msg ? `：${msg}` : ''}`)
+  throw new OssError(`OSS ${res.status}${code ? ` ${code}` : ''}${msg ? `：${msg}` : ''}`, res.status, code)
 }
 
-export function putObject(
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+export interface RetryOptions {
+  /** 首次失败后额外重试的次数（默认 2，即最多 3 次尝试）。 */
+  retries?: number
+  /** 每次重试前调用；attempt 是即将进行的第几次尝试（从 2 开始），total 是总尝试次数。 */
+  onRetry?: (attempt: number, total: number, error: Error) => void
+}
+
+/**
+ * 临时故障（网络中断、超时、5xx、429）按指数退避 + 抖动重试，永久错误（4xx）直接抛出。
+ * 只用于幂等操作：同一个 key 的 PUT / GET / DELETE 重试不会产生重复对象。
+ */
+export async function withRetry<T>(fn: (attempt: number) => Promise<T>, opts: RetryOptions = {}): Promise<T> {
+  const retries = Math.max(0, opts.retries ?? 2)
+  let last: unknown
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn(attempt)
+    } catch (err) {
+      last = err
+      const retryable = !(err instanceof OssError) || err.retryable
+      if (!retryable || attempt === retries) break
+      const delay = Math.round(Math.min(8000, 600 * 2 ** attempt) * (0.7 + Math.random() * 0.6))
+      opts.onRetry?.(attempt + 2, retries + 1, err instanceof Error ? err : new Error(String(err)))
+      await sleep(delay)
+    }
+  }
+  throw last
+}
+
+// 慢速网络下按体积给足时间：约 10 KB/s 的最坏情况，最少 2 分钟、最多 30 分钟。
+const uploadTimeout = (size: number) => Math.min(30 * 60_000, Math.max(120_000, Math.round(size / 10_240) * 1000))
+
+function putOnce(
   cfg: OssConfig,
   key: string,
   body: Blob,
@@ -116,30 +165,57 @@ export function putObject(
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', url)
     xhr.setRequestHeader('Content-Type', contentType)
+    xhr.timeout = uploadTimeout(body.size)
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total)
     }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve()
       else {
-        const code = /<Code>([^<]+)<\/Code>/.exec(xhr.responseText)?.[1]
-        reject(new OssError(`上传失败（${xhr.status}${code ? ` ${code}` : ''}）`))
+        const code = codeRe.exec(xhr.responseText)?.[1]
+        reject(new OssError(`上传失败（${xhr.status}${code ? ` ${code}` : ''}）`, xhr.status, code))
       }
     }
-    xhr.onerror = () => reject(new OssError('网络错误：请检查 Bucket 的跨域（CORS）设置'))
+    xhr.onerror = () => reject(new OssError('网络错误：请检查网络连接与 Bucket 的跨域（CORS）设置'))
+    xhr.ontimeout = () => reject(new OssError('上传超时：网络不稳定，已中断'))
     xhr.send(body)
   })
 }
 
+/**
+ * 上传一个对象，失败自动重试；每次尝试都会重新签名（旧签名可能已过期）。
+ * 注意：重试是整文件重传，不做断点续传。
+ */
+export function putObject(
+  cfg: OssConfig,
+  key: string,
+  body: Blob,
+  contentType: string,
+  onProgress?: (ratio: number) => void,
+  opts: RetryOptions = {},
+): Promise<void> {
+  return withRetry(() => putOnce(cfg, key, body, contentType, onProgress), {
+    ...opts,
+    onRetry: (attempt, total, error) => {
+      onProgress?.(0) // 重新开始传，进度条回到 0
+      opts.onRetry?.(attempt, total, error)
+    },
+  })
+}
+
 export async function getJson<T>(cfg: OssConfig, key: string): Promise<T> {
-  const res = await fetch(signedUrl(cfg, { method: 'GET', key }), { cache: 'no-store' })
-  if (!res.ok) await explain(res)
-  return (await res.json()) as T
+  return withRetry(async () => {
+    const res = await fetch(signedUrl(cfg, { method: 'GET', key }), { cache: 'no-store' })
+    if (!res.ok) await explain(res)
+    return (await res.json()) as T
+  })
 }
 
 export async function deleteObject(cfg: OssConfig, key: string): Promise<void> {
-  const res = await fetch(signedUrl(cfg, { method: 'DELETE', key }), { method: 'DELETE' })
-  if (!res.ok && res.status !== 404) await explain(res)
+  await withRetry(async () => {
+    const res = await fetch(signedUrl(cfg, { method: 'DELETE', key }), { method: 'DELETE' })
+    if (!res.ok && res.status !== 404) await explain(res)
+  })
 }
 
 export async function listKeys(cfg: OssConfig, prefix: string): Promise<string[]> {
@@ -148,8 +224,11 @@ export async function listKeys(cfg: OssConfig, prefix: string): Promise<string[]
   for (let page = 0; page < 20; page++) {
     const query: Record<string, string> = { prefix, 'max-keys': '1000' }
     if (marker) query.marker = marker
-    const res = await fetch(signedUrl(cfg, { method: 'GET', key: '', query }), { cache: 'no-store' })
-    if (!res.ok) await explain(res)
+    const res = await withRetry(async () => {
+      const r = await fetch(signedUrl(cfg, { method: 'GET', key: '', query }), { cache: 'no-store' })
+      if (!r.ok) await explain(r)
+      return r
+    })
     const doc = new DOMParser().parseFromString(await res.text(), 'application/xml')
     doc.querySelectorAll('Contents > Key').forEach((n) => n.textContent && keys.push(n.textContent))
     const truncated = doc.querySelector('IsTruncated')?.textContent === 'true'

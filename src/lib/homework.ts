@@ -1,4 +1,4 @@
-import { deleteObject, getJson, listKeys, ossConfig, putObject } from './oss'
+import { deleteObject, getJson, listKeys, ossConfig, putObject, type OssConfig } from './oss'
 
 export interface AttachmentMeta {
   name: string
@@ -84,27 +84,17 @@ export async function loadHomework(): Promise<Homework[]> {
   return list.sort((a, b) => b.createdAt - a.createdAt)
 }
 
+/**
+ * 发布一份作业。onProgress 的第三参是当前是第几次上传尝试（>1 表示正在重试）。
+ * cfg 默认取构建时注入的 OSS 配置，显式传入主要是为了测试。
+ */
 export async function createHomework(
   input: NewHomework,
-  onProgress?: (fileIndex: number, ratio: number) => void,
+  onProgress?: (fileIndex: number, ratio: number, attempt: number) => void,
+  cfg: OssConfig | null = ossConfig,
 ): Promise<Homework> {
   const id = newId()
   const files: AttachmentMeta[] = []
-
-  if (ossConfig) {
-    const cfg = ossConfig
-    for (let i = 0; i < input.files.length; i++) {
-      const f = input.files[i]
-      const type = f.type || 'application/octet-stream'
-      // ASCII-only object keys; the original filename lives in the card JSON.
-      const key = `${cfg.prefix}files/${id}/${i + 1}-${newId()}${extOf(f.name)}`
-      await putObject(cfg, key, f, type, (r) => onProgress?.(i, r))
-      files.push({ name: f.name, size: f.size, type, key })
-    }
-  } else {
-    input.files.forEach((f) => files.push({ name: f.name, size: f.size, type: f.type || 'application/octet-stream' }))
-  }
-
   const hw: Homework = {
     id,
     subject: input.subject.trim(),
@@ -115,19 +105,41 @@ export async function createHomework(
     files,
   }
 
-  if (ossConfig) {
-    const blob = new Blob([JSON.stringify(hw)], { type: 'application/json' })
-    await putObject(ossConfig, `${ossConfig.prefix}cards/${id}.json`, blob, 'application/json')
-  } else {
+  if (!cfg) {
+    input.files.forEach((f) => files.push({ name: f.name, size: f.size, type: f.type || 'application/octet-stream' }))
     safeSet(LOCAL_KEY, [hw, ...safeGet<Homework[]>(LOCAL_KEY, [])])
+    rememberMine(id)
+    return hw
+  }
+
+  const cardKey = `${cfg.prefix}cards/${id}.json`
+  const uploaded: string[] = []
+  try {
+    for (let i = 0; i < input.files.length; i++) {
+      const f = input.files[i]
+      const type = f.type || 'application/octet-stream'
+      // ASCII-only object keys; the original filename lives in the card JSON.
+      const key = `${cfg.prefix}files/${id}/${i + 1}-${newId()}${extOf(f.name)}`
+      await putObject(cfg, key, f, type, (r) => onProgress?.(i, r, 1), {
+        onRetry: (attempt) => onProgress?.(i, 0, attempt),
+      })
+      uploaded.push(key)
+      files.push({ name: f.name, size: f.size, type, key })
+    }
+    const blob = new Blob([JSON.stringify(hw)], { type: 'application/json' })
+    await putObject(cfg, cardKey, blob, 'application/json')
+  } catch (err) {
+    // 回滚：删掉本次已上传的附件与可能已写入的卡片，避免桶里留下孤儿文件。
+    // 尽力而为——清理失败不应掩盖真正的上传错误。
+    await Promise.allSettled([...uploaded, cardKey].map((k) => deleteObject(cfg, k)))
+    throw err
   }
   rememberMine(id)
   return hw
 }
 
-export async function removeHomework(hw: Homework): Promise<void> {
-  if (ossConfig) {
-    const cfg = ossConfig
+export async function removeHomework(hw: Homework, cfg: OssConfig | null = ossConfig): Promise<void> {
+  if (cfg) {
     await deleteObject(cfg, `${cfg.prefix}cards/${hw.id}.json`)
     await Promise.allSettled(hw.files.filter((f) => f.key).map((f) => deleteObject(cfg, f.key!)))
   } else {
