@@ -6,7 +6,6 @@ import {
   fileKind,
   formatBytes,
   formatDate,
-  isMine,
   removeHomework,
   storageLabel,
   type AttachmentMeta,
@@ -153,7 +152,6 @@ function HomeworkCard({
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const mine = isMine(hw.id)
 
   const remove = async () => {
     setBusy(true)
@@ -225,37 +223,36 @@ function HomeworkCard({
         </ul>
       )}
 
-      {mine && (
-        <footer className="mt-auto flex items-center justify-end gap-2 pt-6 text-xs">
-          {err && <span className="mr-auto text-rose-300">{err}</span>}
-          {confirming ? (
-            <>
-              <button type="button" onClick={() => setConfirming(false)} className="cursor-pointer rounded-full px-3 py-1 text-white/55 hover:text-white">
-                取消
+      {/* Everyone can edit or delete any card — no login by design. */}
+      <footer className="mt-auto flex items-center justify-end gap-2 pt-6 text-xs">
+        {err && <span className="mr-auto text-rose-300">{err}</span>}
+        {confirming ? (
+          <>
+            <button type="button" onClick={() => setConfirming(false)} className="cursor-pointer rounded-full px-3 py-1 text-white/55 hover:text-white">
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={remove}
+              disabled={busy}
+              className="cursor-pointer rounded-full bg-rose-400/15 px-3 py-1 text-rose-200 hover:bg-rose-400/25 disabled:opacity-50"
+            >
+              {busy ? '删除中…' : '确认删除'}
+            </button>
+          </>
+        ) : (
+          <>
+            {onEdit && (
+              <button type="button" onClick={onEdit} className="cursor-pointer rounded-full px-3 py-1 text-white/55 hover:bg-white/10 hover:text-white">
+                修改
               </button>
-              <button
-                type="button"
-                onClick={remove}
-                disabled={busy}
-                className="cursor-pointer rounded-full bg-rose-400/15 px-3 py-1 text-rose-200 hover:bg-rose-400/25 disabled:opacity-50"
-              >
-                {busy ? '删除中…' : '确认删除'}
-              </button>
-            </>
-          ) : (
-            <>
-              {onEdit && (
-                <button type="button" onClick={onEdit} className="cursor-pointer rounded-full px-3 py-1 text-white/55 hover:bg-white/10 hover:text-white">
-                  修改
-                </button>
-              )}
-              <button type="button" onClick={() => setConfirming(true)} className="cursor-pointer rounded-full px-3 py-1 text-white/40 hover:text-white/80">
-                删除
-              </button>
-            </>
-          )}
-        </footer>
-      )}
+            )}
+            <button type="button" onClick={() => setConfirming(true)} className="cursor-pointer rounded-full px-3 py-1 text-white/40 hover:text-white/80">
+              删除
+            </button>
+          </>
+        )}
+      </footer>
     </article>
   )
 }

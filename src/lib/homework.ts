@@ -19,28 +19,6 @@ export const MAX_FILE_BYTES = 500 * 1024 * 1024
 
 export const storageLabel = '班级服务器'
 
-const MINE_KEY = 'zuoyexiang.mine.v2'
-
-function safeGet<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T) : fallback
-  } catch {
-    return fallback
-  }
-}
-
-function safeSet(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* 隐私模式等场景忽略 */
-  }
-}
-
-export const isMine = (id: string) => safeGet<string[]>(MINE_KEY, []).includes(id)
-const rememberMine = (id: string) => safeSet(MINE_KEY, [...safeGet<string[]>(MINE_KEY, []), id])
-
 export async function loadHomework(): Promise<Homework[]> {
   return listHomework()
 }
@@ -81,7 +59,6 @@ export async function createHomework(
       author: input.author || undefined,
       files: metas,
     })
-    rememberMine(item.id)
     return item
   } catch (err) {
     try {
