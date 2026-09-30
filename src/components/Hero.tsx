@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { FADE_MS, useSceneCycle } from '../hooks/useSceneCycle'
 import ScenePlayer from './ScenePlayer'
 
@@ -20,7 +20,15 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
   // Hold the current scene while the homework page uses it as a backdrop.
   const { active, select, advance } = useSceneCycle(SCENES.length)
   const [mood, setMood] = useState('')
+  const [warmIndex, setWarmIndex] = useState<number | null>(null)
   const isForest = active === FOREST
+
+  // 先让当前这段独享带宽 2.5 秒，再预取下一段：首屏出画更快，下一段也来得及缓冲。
+  useEffect(() => {
+    setWarmIndex(null)
+    const t = window.setTimeout(() => setWarmIndex((active + 1) % SCENES.length), 2500)
+    return () => window.clearTimeout(t)
+  }, [active])
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -39,7 +47,16 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
         aria-hidden="true"
       >
         {SCENES.map((s, i) => (
-          <ScenePlayer key={s.src} src={s.src} active={i === active} z={i === active ? 2 : 1} hold={!visible} fadeMs={FADE_MS} onNearEnd={advance} />
+          <ScenePlayer
+            key={s.src}
+            src={s.src}
+            active={i === active}
+            warm={i === warmIndex}
+            z={i === active ? 2 : 1}
+            hold={!visible}
+            fadeMs={FADE_MS}
+            onNearEnd={advance}
+          />
         ))}
       </div>
 
@@ -51,7 +68,7 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
         aria-hidden="true"
       >
         <img
-          src="input-assets/window.png"
+          src="input-assets/window.webp"
           alt=""
           className="carriage absolute inset-0 h-full w-full object-cover select-none"
           draggable={false}

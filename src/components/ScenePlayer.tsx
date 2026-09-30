@@ -14,6 +14,8 @@ interface ScenePlayerProps {
   fadeMs: number
   /** Fired once per pass, `fadeMs` (+margin) before the clip ends, while active and not held. */
   onNearEnd: () => void
+  /** 即将上场、需要提前预取时置 true；冷场景完全不下载。 */
+  warm?: boolean
 }
 
 /**
@@ -21,7 +23,7 @@ interface ScenePlayerProps {
  * its first frame and, near the end, asks the carousel to move on. Only the visible scene(s) decode;
  * the rest are paused, keeping the number of live decoders to at most two.
  */
-export default function ScenePlayer({ src, active, z, hold, fadeMs, onNearEnd }: ScenePlayerProps) {
+export default function ScenePlayer({ src, active, z, hold, fadeMs, onNearEnd, warm = false }: ScenePlayerProps) {
   const ref = useRef<HTMLVideoElement>(null)
   const holdRef = useRef(hold)
   const nearEndRef = useRef(onNearEnd)
@@ -30,6 +32,17 @@ export default function ScenePlayer({ src, active, z, hold, fadeMs, onNearEnd }:
     holdRef.current = hold
     nearEndRef.current = onNearEnd
   }, [hold, onNearEnd])
+
+  // 首屏不再同时拉四段视频（原来 27MB 一起下，互相抢带宽，正在播的那段会卡）：
+  // 只有"正在播"或"即将上场"的场景才开始加载。
+  useEffect(() => {
+    const v = ref.current
+    if (!v) return
+    if ((active || warm) && v.networkState === v.NETWORK_EMPTY) {
+      v.preload = 'auto'
+      v.load()
+    }
+  }, [active, warm])
 
   useEffect(() => {
     const v = ref.current
@@ -121,7 +134,7 @@ export default function ScenePlayer({ src, active, z, hold, fadeMs, onNearEnd }:
       autoPlay={active}
       loop // used while held; otherwise the carousel moves on before the end
       playsInline
-      preload="auto"
+      preload={active || warm ? 'auto' : 'none'}
       disablePictureInPicture
       className="absolute inset-0 h-full w-full object-cover transition-opacity ease-in-out"
       style={{
