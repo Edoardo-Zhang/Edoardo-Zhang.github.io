@@ -111,12 +111,6 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
             <span className="block whitespace-nowrap">找回作业</span>
           </h1>
 
-          <p className="mt-4 max-w-[36rem] text-[0.9rem] leading-[1.85] opacity-90 sm:mt-6 sm:text-base short:mt-3 short:leading-[1.7] tiny:hidden">
-            越过消息提醒、无尽滚动和持续要求带来的混乱。
-            <br className="hidden sm:block" />
-            学会守护当下，有意识地写作业。
-          </p>
-
           <form
             onSubmit={submit}
             className="liquid-glass mt-6 flex w-full max-w-[26rem] items-center gap-1.5 rounded-full p-1.5 sm:mt-9 short:mt-4"
