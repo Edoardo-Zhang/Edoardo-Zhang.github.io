@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { FADE_MS, useSceneCycle } from '../hooks/useSceneCycle'
 import ScenePlayer from './ScenePlayer'
 
@@ -19,7 +19,6 @@ interface HeroProps {
 export default function Hero({ active: visible = true, onGetHomework }: HeroProps) {
   // The carousel keeps running on the homework page too, so the backdrop never loops a single clip.
   const { active, select, advance } = useSceneCycle(SCENES.length)
-  const [mood, setMood] = useState('')
   const [warmIndex, setWarmIndex] = useState<number | null>(null)
   const isForest = active === FOREST
 
@@ -29,11 +28,6 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
     const t = window.setTimeout(() => setWarmIndex((active + 1) % SCENES.length), 1000)
     return () => window.clearTimeout(t)
   }, [active])
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault()
-    onGetHomework(mood.trim())
-  }
 
   return (
     <section id="top" className="hero-root" aria-label="作业箱首屏">
@@ -121,29 +115,13 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
             &nbsp;
           </p>
 
-          <form
-            onSubmit={submit}
-            className="liquid-glass mt-6 flex w-full max-w-[26rem] items-center gap-1.5 rounded-full p-1.5 sm:mt-9 short:mt-4"
+          <button
+            type="button"
+            onClick={() => onGetHomework('')}
+            className="liquid-glass mt-6 cursor-pointer rounded-full px-7 py-3 text-sm tracking-[0.08em] text-current transition hover:bg-white/10 active:scale-[0.97] sm:mt-9 sm:text-[0.95rem] short:mt-4"
           >
-            <label htmlFor="mood" className="sr-only">
-              此刻的心境
-            </label>
-            <input
-              id="mood"
-              value={mood}
-              onChange={(e) => setMood(e.target.value)}
-              placeholder="请先调整你的心境"
-              maxLength={40}
-              autoComplete="off"
-              className="min-w-0 flex-1 bg-transparent px-4 text-sm text-current outline-none placeholder:text-current placeholder:opacity-60 sm:text-[0.95rem]"
-            />
-            <button
-              type="submit"
-              className="shrink-0 cursor-pointer rounded-full bg-white px-5 py-2.5 text-sm font-medium text-[#0d1520] shadow-[0_6px_20px_-8px_rgba(0,0,0,0.45)] transition hover:bg-white/90 active:scale-[0.97] sm:px-6"
-            >
-              获取作业
-            </button>
-          </form>
+            作业启程
+          </button>
 
           <div role="group" aria-label="切换风景" className="mt-7 flex items-center gap-4 text-[0.8rem] sm:mt-10 sm:gap-7 sm:text-sm short:mt-5">
             {SCENES.map((s, i) => {
