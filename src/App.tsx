@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Hero from './components/Hero'
 import HomeworkSection from './components/HomeworkSection'
-import { loadHomework, storageMode, type Homework } from './lib/homework'
+import { loadHomework, type Homework } from './lib/homework'
 
 type View = 'hero' | 'homework'
 
@@ -24,11 +24,7 @@ export default function App() {
       setHomework(await loadHomework())
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      setError(
-        storageMode === 'oss'
-          ? `无法从阿里云 OSS 读取作业（${msg}）。请确认 Bucket、密钥与跨域（CORS）设置。`
-          : `读取本机作业失败：${msg}`,
-      )
+      setError(`无法从服务器读取作业（${msg}）。请稍后重试，或联系管理员检查后端服务。`)
     } finally {
       setLoading(false)
     }

@@ -1,36 +1,22 @@
-import { deleteObject, getJson, listKeys, ossConfig, putObject, type OssConfig } from './oss'
+// 作业数据层：所有读写都走本站后端 API，前端不接触 OSS 凭证。
+import {
+  abortUpload,
+  commitHomework,
+  deleteHomework,
+  downloadHref,
+  listHomework,
+  prepareUpload,
+  uploadFile,
+  type Homework,
+} from './api'
 
-export interface AttachmentMeta {
-  name: string
-  size: number
-  type: string
-  key?: string // OSS object key; absent when stored locally (OSS not configured)
-}
+export type { Homework }
 
-export interface Homework {
-  id: string
-  subject: string
-  items: string[]
-  due?: string
-  author?: string
-  createdAt: number
-  files: AttachmentMeta[]
-}
-
-export interface NewHomework {
-  subject: string
-  items: string[]
-  due?: string
-  author?: string
-  files: File[]
-}
-
-export const storageMode: 'oss' | 'local' = ossConfig ? 'oss' : 'local'
-export const storageLabel = ossConfig ? `阿里云 OSS · ${ossConfig.bucket}` : '本机存储（未配置 OSS）'
-
-const LOCAL_KEY = 'zuoyexiang.homework.v1'
-const MINE_KEY = 'zuoyexiang.mine.v1'
 export const MAX_FILE_BYTES = 500 * 1024 * 1024
+
+export const storageLabel = '班级服务器'
+
+const MINE_KEY = 'zuoyexiang.mine.v2'
 
 function safeGet<T>(key: string, fallback: T): T {
   try {
@@ -45,110 +31,70 @@ function safeSet(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value))
   } catch {
-    /* storage unavailable (private mode) — ignore */
+    /* 隐私模式等场景忽略 */
   }
 }
 
 export const isMine = (id: string) => safeGet<string[]>(MINE_KEY, []).includes(id)
 const rememberMine = (id: string) => safeSet(MINE_KEY, [...safeGet<string[]>(MINE_KEY, []), id])
 
-function newId() {
-  const rand =
-    typeof crypto !== 'undefined' && 'getRandomValues' in crypto
-      ? Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, '0')).join('')
-      : Math.random().toString(16).slice(2, 14)
-  // Time-first ids sort chronologically in OSS listings.
-  return `${Date.now().toString(36)}-${rand}`
-}
-
-function extOf(name: string) {
-  const m = /\.([A-Za-z0-9]{1,10})$/.exec(name)
-  return m ? `.${m[1].toLowerCase()}` : ''
-}
-
-function isHomework(v: unknown): v is Homework {
-  const h = v as Homework
-  return !!h && typeof h.id === 'string' && typeof h.subject === 'string' && Array.isArray(h.items)
-}
-
 export async function loadHomework(): Promise<Homework[]> {
-  let list: Homework[]
-  if (ossConfig) {
-    const cfg = ossConfig
-    const keys = (await listKeys(cfg, `${cfg.prefix}cards/`)).filter((k) => k.endsWith('.json'))
-    const results = await Promise.allSettled(keys.map((k) => getJson<Homework>(cfg, k)))
-    list = results.flatMap((r) => (r.status === 'fulfilled' && isHomework(r.value) ? [r.value] : []))
-  } else {
-    list = safeGet<Homework[]>(LOCAL_KEY, []).filter(isHomework)
-  }
-  return list.sort((a, b) => b.createdAt - a.createdAt)
+  return listHomework()
 }
 
 /**
- * 发布一份作业。onProgress 的第三参是当前是第几次上传尝试（>1 表示正在重试）。
- * cfg 默认取构建时注入的 OSS 配置，显式传入主要是为了测试。
+ * 发布一份作业：先向后端要上传地址 → 直传 OSS（带进度、失败重试）→ 落库。
+ * 任何一步失败都会回滚本次已上传的附件，桶里不留孤儿文件。
+ * onProgress 的第三参是当前是第几次上传尝试（>1 表示正在重试）。
  */
 export async function createHomework(
-  input: NewHomework,
+  input: {
+    subject: string
+    items: string[]
+    due?: string
+    author?: string
+    files: File[]
+  },
   onProgress?: (fileIndex: number, ratio: number, attempt: number) => void,
-  cfg: OssConfig | null = ossConfig,
 ): Promise<Homework> {
-  const id = newId()
-  const files: AttachmentMeta[] = []
-  const hw: Homework = {
-    id,
-    subject: input.subject.trim(),
-    items: input.items.map((s) => s.trim()).filter(Boolean),
-    due: input.due || undefined,
-    author: input.author?.trim() || undefined,
-    createdAt: Date.now(),
-    files,
-  }
-
-  if (!cfg) {
-    input.files.forEach((f) => files.push({ name: f.name, size: f.size, type: f.type || 'application/octet-stream' }))
-    safeSet(LOCAL_KEY, [hw, ...safeGet<Homework[]>(LOCAL_KEY, [])])
-    rememberMine(id)
-    return hw
-  }
-
-  const cardKey = `${cfg.prefix}cards/${id}.json`
+  const prepared = await prepareUpload(input.files.map((f) => ({ name: f.name, size: f.size, type: f.type || 'application/octet-stream' })))
   const uploaded: string[] = []
+  const metas: { name: string; size: number; type: string; key: string }[] = []
   try {
     for (let i = 0; i < input.files.length; i++) {
-      const f = input.files[i]
-      const type = f.type || 'application/octet-stream'
-      // ASCII-only object keys; the original filename lives in the card JSON.
-      const key = `${cfg.prefix}files/${id}/${i + 1}-${newId()}${extOf(f.name)}`
-      await putObject(cfg, key, f, type, (r) => onProgress?.(i, r, 1), {
+      const file = input.files[i]
+      const upload = prepared.uploads[i]
+      await uploadFile(upload, file, (ratio) => onProgress?.(i, ratio, 1), {
         onRetry: (attempt) => onProgress?.(i, 0, attempt),
       })
-      uploaded.push(key)
-      files.push({ name: f.name, size: f.size, type, key })
+      uploaded.push(upload.key)
+      metas.push({ name: file.name, size: file.size, type: file.type || 'application/octet-stream', key: upload.key })
     }
-    const blob = new Blob([JSON.stringify(hw)], { type: 'application/json' })
-    await putObject(cfg, cardKey, blob, 'application/json')
+    const item = await commitHomework({
+      id: prepared.id,
+      subject: input.subject,
+      items: input.items,
+      due: input.due || undefined,
+      author: input.author || undefined,
+      files: metas,
+    })
+    rememberMine(item.id)
+    return item
   } catch (err) {
-    // 回滚：删掉本次已上传的附件与可能已写入的卡片，避免桶里留下孤儿文件。
-    // 尽力而为——清理失败不应掩盖真正的上传错误。
-    await Promise.allSettled([...uploaded, cardKey].map((k) => deleteObject(cfg, k)))
+    try {
+      await abortUpload(prepared.id, uploaded)
+    } catch {
+      /* 回滚失败不该掩盖真正的错误 */
+    }
     throw err
   }
-  rememberMine(id)
-  return hw
 }
 
-export async function removeHomework(hw: Homework, cfg: OssConfig | null = ossConfig): Promise<void> {
-  if (cfg) {
-    await deleteObject(cfg, `${cfg.prefix}cards/${hw.id}.json`)
-    await Promise.allSettled(hw.files.filter((f) => f.key).map((f) => deleteObject(cfg, f.key!)))
-  } else {
-    safeSet(
-      LOCAL_KEY,
-      safeGet<Homework[]>(LOCAL_KEY, []).filter((h) => h.id !== hw.id),
-    )
-  }
+export async function removeHomework(hw: Homework): Promise<void> {
+  await deleteHomework(hw.id)
 }
+
+export { downloadHref }
 
 export function formatBytes(n: number) {
   if (n < 1024) return `${n} B`
@@ -160,6 +106,11 @@ export function formatBytes(n: number) {
     u++
   }
   return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[u]}`
+}
+
+function extOf(name: string) {
+  const m = /\.([A-Za-z0-9]{1,10})$/.exec(name)
+  return m ? `.${m[1].toLowerCase()}` : ''
 }
 
 export function fileKind(meta: { name: string; type: string }) {

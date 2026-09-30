@@ -8,10 +8,9 @@ import {
   isMine,
   removeHomework,
   storageLabel,
-  storageMode,
   type Homework,
 } from '../lib/homework'
-import { downloadUrl, ossConfig } from '../lib/oss'
+import { downloadHref } from '../lib/api'
 
 const SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
 
@@ -50,12 +49,10 @@ export default function HomeworkSection({ headingRef, mood, homework, loading, e
 
           <div className="flex flex-wrap items-center gap-3">
             <span
-              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs ${
-                storageMode === 'oss' ? 'text-emerald-200/80' : 'text-amber-200/80'
-              } bg-white/[0.04]`}
-              title={storageMode === 'oss' ? '附件与作业保存在阿里云 OSS，所有人可见' : '在 .env.local 中配置 OSS 后，作业与附件才能被他人看到'}
+              className="inline-flex items-center gap-2 rounded-full bg-white/[0.04] px-3 py-1.5 text-xs text-emerald-200/80"
+              title="作业与附件保存在班级服务器上，所有打开本页的人都能看到"
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${storageMode === 'oss' ? 'bg-emerald-300' : 'bg-amber-300'}`} />
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
               {storageLabel}
             </span>
             <button
@@ -180,9 +177,9 @@ function HomeworkCard({ hw, index, onRemoved }: { hw: Homework; index: number; o
                   {!f.key && ' · 仅记录信息，未上传'}
                 </span>
               </span>
-              {f.key && ossConfig && (
+              {f.key && (
                 <a
-                  href={downloadUrl(ossConfig, f.key, f.name)}
+                  href={downloadHref(f.key, f.name)}
                   className="shrink-0 rounded-full px-3 py-1 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
                   rel="noopener"
                 >
@@ -330,7 +327,7 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
       onCreated(hw)
     } catch (err) {
       const msg = err instanceof Error ? err.message : '保存失败，请稍后再试'
-      setError(storageMode === 'oss' && files.length > 0 ? `${msg}（本次已上传的附件已回滚，可直接重试）` : msg)
+      setError(files.length > 0 ? `${msg}（本次已上传的附件已回滚，可直接重试）` : msg)
       setSubmitting(false)
       setProgress(null)
     }
@@ -470,7 +467,7 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
           />
           <span className="text-white/75">点击选择或拖入文件</span>
           <span className="mt-1 text-xs text-white/40">
-            {storageMode === 'oss' ? `将上传到阿里云 OSS · 单个不超过 ${formatBytes(MAX_FILE_BYTES)}` : '未配置 OSS：仅记录文件信息，不会上传'}
+            {`上传到班级服务器 · 单个不超过 ${formatBytes(MAX_FILE_BYTES)}`}
           </span>
         </label>
         {files.length > 0 && (

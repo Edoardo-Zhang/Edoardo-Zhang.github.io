@@ -31,11 +31,7 @@ jobs:
         run: npm ci
 
       - name: Build
-        env:
-          VITE_OSS_ACCESS_KEY_ID: ${{ secrets.VITE_OSS_ACCESS_KEY_ID }}
-          VITE_OSS_ACCESS_KEY_SECRET: ${{ secrets.VITE_OSS_ACCESS_KEY_SECRET }}
-          VITE_OSS_REGION: oss-cn-hangzhou
-          VITE_OSS_BUCKET: bitjiaxin
+        # 前端不再包含任何 OSS 凭证：上传/下载都由后端签发临时 URL。
         run: npm run build
 
       - name: Upload artifact

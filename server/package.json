@@ -1,0 +1,19 @@
+{
+  "name": "zuoyexiang-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "作业箱后端：静态站点 + OSS 预签名（AccessKey 只留在服务器）",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs",
+    "dev": "node --watch index.mjs",
+    "test": "node test-e2e.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

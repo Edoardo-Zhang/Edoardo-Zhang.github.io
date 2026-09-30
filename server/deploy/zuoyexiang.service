@@ -1,0 +1,22 @@
+[Unit]
+Description=作业箱后端 (zuoyexiang)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zuoyexiang
+Group=zuoyexiang
+WorkingDirectory=/opt/zuoyexiang/server
+EnvironmentFile=/opt/zuoyexiang/server/.env
+ExecStart=/usr/bin/node /opt/zuoyexiang/server/index.mjs
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/zuoyexiang
+
+[Install]
+WantedBy=multi-user.target
