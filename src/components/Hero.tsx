@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { FADE_MS, useSceneCycle } from '../hooks/useSceneCycle'
 import ScenePlayer from './ScenePlayer'
 
 const SCENES = [
-  { name: '金色时刻', src: 'input-assets/golden-hour.mp4' },
-  { name: '静水', src: 'input-assets/still-water.mp4' },
-  { name: '深林', src: 'input-assets/deep-forest.mp4' },
-  { name: '静谧黎明', src: 'input-assets/quiet-dawn.mp4' },
+  { name: '金色时刻', src: 'input-assets/golden-hour-v2.mp4', poster: 'input-assets/golden-hour-v2.webp' },
+  { name: '静水', src: 'input-assets/still-water-v2.mp4', poster: 'input-assets/still-water-v2.webp' },
+  { name: '深林', src: 'input-assets/deep-forest-v2.mp4', poster: 'input-assets/deep-forest-v2.webp' },
+  { name: '静谧黎明', src: 'input-assets/quiet-dawn-v2.mp4', poster: 'input-assets/quiet-dawn-v2.webp' },
 ] as const
 
 const FOREST = 2
@@ -17,22 +17,50 @@ interface HeroProps {
 }
 
 export default function Hero({ active: visible = true, onGetHomework }: HeroProps) {
+  const heroRef = useRef<HTMLElement>(null)
+  const pointerFrame = useRef<number | null>(null)
   // The carousel keeps running on the homework page too, so the backdrop never loops a single clip.
   const { active, select, advance } = useSceneCycle(SCENES.length)
-  const [warmIndex, setWarmIndex] = useState<number | null>(null)
+  const [warming, setWarming] = useState<{ scene: number; next: number | null }>({ scene: 0, next: null })
+  const warmIndex = warming.scene === active ? warming.next : null
 
   // 字体颜色与画面交叉淡化同时开始、同样时长、同一缓动：字色始终跟着画面走，不提前也不滞后。
   const isForest = active === FOREST
 
-  // 先让当前这段独享带宽 1 秒，再预取下一段：首屏出画不受影响，下一段也有近 2 秒缓冲（每段只停留约 3 秒）。
+  // 首段先独享短暂带宽；随后预取下一段。压缩后的片段约 1 MB，可在切换前缓冲。
   useEffect(() => {
-    setWarmIndex(null)
-    const t = window.setTimeout(() => setWarmIndex((active + 1) % SCENES.length), 1000)
+    const t = window.setTimeout(() => setWarming({ scene: active, next: (active + 1) % SCENES.length }), 500)
     return () => window.clearTimeout(t)
   }, [active])
 
+  useEffect(() => () => {
+    if (pointerFrame.current !== null) cancelAnimationFrame(pointerFrame.current)
+  }, [])
+
+  const moveCarriage = (event: PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== 'mouse' || !visible || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const element = heroRef.current
+    if (!element) return
+    const rect = element.getBoundingClientRect()
+    const x = (event.clientX - rect.left) / rect.width - 0.5
+    const y = (event.clientY - rect.top) / rect.height - 0.5
+    if (pointerFrame.current !== null) cancelAnimationFrame(pointerFrame.current)
+    pointerFrame.current = requestAnimationFrame(() => {
+      element.style.setProperty('--carriage-drift-x', `${(-x * 5).toFixed(2)}px`)
+      element.style.setProperty('--carriage-drift-y', `${(-y * 4).toFixed(2)}px`)
+      pointerFrame.current = null
+    })
+  }
+
+  const resetCarriage = () => {
+    if (pointerFrame.current !== null) cancelAnimationFrame(pointerFrame.current)
+    pointerFrame.current = null
+    heroRef.current?.style.setProperty('--carriage-drift-x', '0px')
+    heroRef.current?.style.setProperty('--carriage-drift-y', '0px')
+  }
+
   return (
-    <section id="top" className="hero-root" aria-label="作业箱首屏">
+    <section id="top" ref={heroRef} onPointerMove={moveCarriage} onPointerLeave={resetCarriage} className="hero-root" aria-label="作业箱首屏">
       {/* Layer 0 — four stacked scenes. Dimmed + softened when they become the homework backdrop. */}
       <div
         className="absolute inset-0 z-0 transition-[filter,transform] duration-[1100ms] ease-[cubic-bezier(0.65,0,0.35,1)] motion-reduce:transition-none"
@@ -46,6 +74,7 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
           <ScenePlayer
             key={s.src}
             src={s.src}
+            poster={s.poster}
             active={i === active}
             warm={i === warmIndex}
             z={i === active ? 2 : 1}
@@ -55,6 +84,8 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
         ))}
       </div>
 
+      <div className="cinematic-vignette pointer-events-none absolute inset-0 z-[5]" aria-hidden="true" />
+
       {/* Layer 1 — carriage foreground (window.png), breathing without exposing edges.
           Drifts past the camera and fades out when leaving for the homework page. */}
       <div
@@ -62,14 +93,16 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
         style={{ opacity: visible ? 1 : 0, transform: visible ? 'none' : 'scale(1.12)' }}
         aria-hidden="true"
       >
-        <img
-          src="input-assets/window.webp"
-          alt=""
-          className="carriage absolute inset-0 h-full w-full object-cover select-none"
-          draggable={false}
-          decoding="async"
-          fetchPriority="high"
-        />
+        <div className="carriage-drift absolute inset-0">
+          <img
+            src="input-assets/window.webp"
+            alt=""
+            className="carriage absolute inset-0 h-full w-full object-cover select-none"
+            draggable={false}
+            decoding="async"
+            fetchPriority="high"
+          />
+        </div>
       </div>
 
       {/* Layer 2 — text & controls */}

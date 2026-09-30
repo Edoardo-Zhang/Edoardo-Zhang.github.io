@@ -6,6 +6,7 @@ const END_MARGIN_S = 0.15
 
 interface ScenePlayerProps {
   src: string
+  poster: string
   active: boolean
   /** Stacking order: the incoming scene sits above the outgoing one while it fades in. */
   z: number
@@ -21,7 +22,7 @@ interface ScenePlayerProps {
  * its first frame and, near the end, asks the carousel to move on. Only the visible scene(s) decode;
  * the rest are paused, keeping the number of live decoders to at most two.
  */
-export default function ScenePlayer({ src, active, z, fadeMs, onNearEnd, warm = false }: ScenePlayerProps) {
+export default function ScenePlayer({ src, poster, active, z, fadeMs, onNearEnd, warm = false }: ScenePlayerProps) {
   const ref = useRef<HTMLVideoElement>(null)
   const nearEndRef = useRef(onNearEnd)
 
@@ -34,7 +35,8 @@ export default function ScenePlayer({ src, active, z, fadeMs, onNearEnd, warm = 
   useEffect(() => {
     const v = ref.current
     if (!v) return
-    if ((active || warm) && v.networkState === v.NETWORK_EMPTY) {
+    if ((active || warm) && v.readyState === v.HAVE_NOTHING &&
+        (v.networkState === v.NETWORK_EMPTY || v.networkState === v.NETWORK_IDLE)) {
       v.preload = 'auto'
       v.load()
     }
@@ -125,6 +127,7 @@ export default function ScenePlayer({ src, active, z, fadeMs, onNearEnd, warm = 
     <video
       ref={ref}
       src={src}
+      poster={active || warm ? poster : undefined}
       muted
       autoPlay={active}
       loop // safety net only: the carousel always moves on before the clip ends
