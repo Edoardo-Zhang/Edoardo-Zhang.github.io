@@ -21,13 +21,8 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
   const { active, select, advance } = useSceneCycle(SCENES.length)
   const [warmIndex, setWarmIndex] = useState<number | null>(null)
 
-  // 字体颜色跟随"已经落定的画面"：交叉淡化快结束时才切换，
-  // 否则前后两段亮度叠加的那半秒里，字体和光晕都在半路上，看起来就是黑白抖动。
-  const [isForest, setIsForest] = useState(active === FOREST)
-  useEffect(() => {
-    const t = window.setTimeout(() => setIsForest(active === FOREST), Math.max(0, FADE_MS - 250))
-    return () => window.clearTimeout(t)
-  }, [active])
+  // 字体颜色与画面交叉淡化同时开始、同样时长、同一缓动：字色始终跟着画面走，不提前也不滞后。
+  const isForest = active === FOREST
 
   // 先让当前这段独享带宽 1 秒，再预取下一段：首屏出画不受影响，下一段也有近 2 秒缓冲（每段只停留约 3 秒）。
   useEffect(() => {
@@ -96,8 +91,8 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
             color: isForest ? '#182C41' : '#FFFFFF',
             // A barely-there halo keeps text legible on both bright skies and dark forest.
             textShadow: isForest ? '0 1px 16px rgba(255,255,255,0.35)' : '0 1px 18px rgba(0,0,0,0.28)',
-            // 颜色与光晕用同一条缓动曲线一起走完，避免中途出现"灰字+灰光晕"的夹生状态
-            transition: 'color 620ms cubic-bezier(0.4, 0, 0.2, 1), text-shadow 620ms cubic-bezier(0.4, 0, 0.2, 1)',
+            // 与视频的 opacity 淡化同时长、同曲线（Tailwind ease-in-out = cubic-bezier(0.4,0,0.2,1)），颜色和光晕一起走完
+            transition: `color ${FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1), text-shadow ${FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
           }}
         >
           <div className="liquid-glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[0.72rem] tracking-[0.18em] sm:text-xs tiny:hidden">
@@ -123,10 +118,11 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
             &nbsp;
           </p>
 
+          {/* 只过渡背景与缩放：颜色是从外层继承的，若自己也过渡颜色，会在父级变色的每一帧重新起跑，字色就会落后、来回抖。 */}
           <button
             type="button"
             onClick={() => onGetHomework('')}
-            className="liquid-glass mt-6 cursor-pointer rounded-full px-7 py-3 text-sm tracking-[0.08em] text-current transition hover:bg-white/10 active:scale-[0.97] sm:mt-9 sm:text-[0.95rem] short:mt-4"
+            className="liquid-glass mt-6 cursor-pointer rounded-full px-7 py-3 text-sm tracking-[0.08em] text-current transition-[background-color,transform] hover:bg-white/10 active:scale-[0.97] sm:mt-9 sm:text-[0.95rem] short:mt-4"
           >
             作业启程
           </button>
