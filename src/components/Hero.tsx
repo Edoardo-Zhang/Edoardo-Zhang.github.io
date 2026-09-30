@@ -111,6 +111,16 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
             <span className="block whitespace-nowrap">找回作业</span>
           </h1>
 
+          {/* 空行占位：原说明文案已删，保留原来两行文字所占据的高度，标题与表单的间距与删除前一致 */}
+          <p
+            aria-hidden="true"
+            className="mt-4 max-w-[36rem] text-[0.9rem] leading-[1.85] sm:mt-6 sm:text-base short:mt-3 short:leading-[1.7] tiny:hidden"
+          >
+            &nbsp;
+            <br />
+            &nbsp;
+          </p>
+
           <form
             onSubmit={submit}
             className="liquid-glass mt-6 flex w-full max-w-[26rem] items-center gap-1.5 rounded-full p-1.5 sm:mt-9 short:mt-4"
