@@ -48,7 +48,17 @@ npm install && npm run dev
 - `zuoyexiang/cards/<id>.json` —— 一份作业（科目、逐项内容、截止日期、布置人、附件信息）
 - `zuoyexiang/files/<id>/<n>-<rand>.<ext>` —— 附件原文件（原始文件名保存在卡片 JSON 中）
 
-## 部署（当前线上：腾讯云轻量服务器 · 上海 · Ubuntu）
+## 部署（当前线上：腾讯云轻量 · 香港 · Ubuntu）
+
+> 为什么要香港：域名未备案时，指向**内地**服务器会被腾讯云拦截（HTTP 302 到备案拦截页、HTTPS 握手被重置）。
+> 上海那台（43.142.131.119）已完整部署、证书已签，**备案通过后把 A 记录改回去即可**（publish.ps1 -Server 43.142.131.119 -User root）。
+> 备案号下来后要加进页脚。
+
+| 项 | 当前 |
+| --- | --- |
+| 在服务 | 香港 43.129.85.64（ubuntu 用户） |
+| 备用 | 上海 43.142.131.119（root 用户，备案用） |
+| 域名 | bitjiaxin.cn / www.bitjiaxin.cn（Let's Encrypt，自动续期） |
 
 1. **控制台**：防火墙放行 TCP 80/443；准备好 OSS 的 RAM 子账号密钥。
 2. **上传代码与产物**：把 `dist/`、`server/`（不含 node_modules）同步到服务器 `/opt/zuoyexiang/`，把 `server/.env`（`chmod 600`）单独传上去。
