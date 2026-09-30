@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { FADE_MS, useSceneCycle } from '../hooks/useSceneCycle'
+import ScenePlayer from './ScenePlayer'
 
 const SCENES = [
   { name: '金色时刻', src: 'input-assets/golden-hour.mp4' },
@@ -17,39 +18,9 @@ interface HeroProps {
 
 export default function Hero({ active: visible = true, onGetHomework }: HeroProps) {
   // Hold the current scene while the homework page uses it as a backdrop.
-  const { active, select } = useSceneCycle(SCENES.length, !visible)
-  const videoRefs = useRef<(HTMLVideoElement | null)[]>([])
+  const { active, select, advance } = useSceneCycle(SCENES.length)
   const [mood, setMood] = useState('')
   const isForest = active === FOREST
-
-  // Autoplay can be refused (hidden tab at load, low-power mode) — retry on return and on first touch.
-  useEffect(() => {
-    const resume = () => {
-      const current = videoRefs.current[active]
-      if (current?.paused && !document.hidden) current.play().catch(() => {})
-    }
-    document.addEventListener('visibilitychange', resume)
-    window.addEventListener('pointerdown', resume, { passive: true })
-    return () => {
-      document.removeEventListener('visibilitychange', resume)
-      window.removeEventListener('pointerdown', resume)
-    }
-  }, [active])
-
-  // Only the incoming scene needs to decode; the outgoing one pauses after the fade.
-  useEffect(() => {
-    const current = videoRefs.current[active]
-    if (current) {
-      if (current.readyState > 0 && current.paused) current.currentTime = 0
-      current.play().catch(() => {})
-    }
-    const t = window.setTimeout(() => {
-      videoRefs.current.forEach((v, i) => {
-        if (v && i !== active) v.pause()
-      })
-    }, FADE_MS + 50)
-    return () => window.clearTimeout(t)
-  }, [active])
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -68,21 +39,7 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
         aria-hidden="true"
       >
         {SCENES.map((s, i) => (
-          <video
-            key={s.src}
-            ref={(el) => {
-              videoRefs.current[i] = el
-            }}
-            className="absolute inset-0 h-full w-full object-cover transition-opacity ease-in-out"
-            style={{ opacity: i === active ? 1 : 0, transitionDuration: `${FADE_MS}ms` }}
-            src={s.src}
-            muted
-            autoPlay
-            loop
-            playsInline
-            preload="auto"
-            disablePictureInPicture
-          />
+          <ScenePlayer key={s.src} src={s.src} active={i === active} z={i === active ? 2 : 1} hold={!visible} fadeMs={FADE_MS} onNearEnd={advance} />
         ))}
       </div>
 

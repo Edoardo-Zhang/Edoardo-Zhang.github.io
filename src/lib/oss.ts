@@ -1,10 +1,10 @@
 // Browser-direct Aliyun OSS client (no backend).
-// Requests are authorised with query-string signatures (OSS signature V1), which avoids
+// Requests are authorised with presigned URLs (OSS signature V4), which avoids
 // the need for a `Date` header that browsers refuse to set.
 //
 // SECURITY: any credential shipped to the browser is visible to every visitor.
 // Use a RAM sub-account (or STS token) that is restricted to this bucket + prefix only.
-import { hmacSha1Base64 } from './sha1'
+import { hmacSha256, sha256, toHex } from './sha256'
 
 export interface OssConfig {
   region: string
@@ -50,27 +50,49 @@ interface SignOptions {
   query?: Record<string, string> // unsigned query params (e.g. prefix, marker)
 }
 
+// RFC 3986 encoding as OSS expects (encodeURIComponent leaves !'()* unescaped).
+const enc3986 = (v: string) => encodeURIComponent(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+
+/** Presigned URL, OSS signature V4 (OSS4-HMAC-SHA256). */
 export function signedUrl(cfg: OssConfig, opts: SignOptions): string {
-  const expires = Math.floor(Date.now() / 1000) + (opts.expiresIn ?? 900)
-  const sub: Record<string, string> = { ...(opts.subResources ?? {}) }
-  if (cfg.stsToken) sub['security-token'] = cfg.stsToken
+  const now = new Date(Date.now())
+  const iso = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '') // yyyymmddTHHMMSSZ
+  const day = iso.slice(0, 8)
+  const region = cfg.region.replace(/^oss-/, '')
+  const scope = `${day}/${region}/oss/aliyun_v4_request`
 
-  const subKeys = Object.keys(sub).sort()
-  const resourceQuery = subKeys.map((k) => (sub[k] ? `${k}=${sub[k]}` : k)).join('&')
-  const resource = `/${cfg.bucket}/${opts.key}${resourceQuery ? `?${resourceQuery}` : ''}`
-  const stringToSign = [opts.method, '', opts.contentType ?? '', String(expires), resource].join('\n')
-  const signature = hmacSha1Base64(cfg.accessKeySecret, stringToSign)
+  const query: Record<string, string> = {
+    ...(opts.query ?? {}),
+    ...(opts.subResources ?? {}),
+    'x-oss-credential': `${cfg.accessKeyId}/${scope}`,
+    'x-oss-date': iso,
+    'x-oss-expires': String(opts.expiresIn ?? 900),
+    'x-oss-signature-version': 'OSS4-HMAC-SHA256',
+  }
+  if (cfg.stsToken) query['x-oss-security-token'] = cfg.stsToken
 
-  // Percent-encode (spaces as %20, not '+') — OSS does not treat '+' as a space.
-  const params: [string, string][] = [
-    ...Object.entries(opts.query ?? {}),
-    ...subKeys.map((k): [string, string] => [k, sub[k]]),
-    ['OSSAccessKeyId', cfg.accessKeyId],
-    ['Expires', String(expires)],
-    ['Signature', signature],
-  ]
-  const qs = params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
-  return `${cfg.host}/${encodeKey(opts.key)}?${qs}`
+  const canonicalQuery = Object.keys(query)
+    .sort((x, y) => x.localeCompare(y))
+    .map((k) => (query[k] === '' ? enc3986(k) : `${enc3986(k)}=${enc3986(query[k])}`))
+    .join('&')
+  const canonicalHeaders = opts.contentType ? `content-type:${opts.contentType.trim()}\n` : ''
+  const canonicalRequest = [
+    opts.method,
+    enc3986(`/${cfg.bucket}/${opts.key}`).replace(/%2F/g, '/'),
+    canonicalQuery,
+    canonicalHeaders,
+    '',
+    'UNSIGNED-PAYLOAD',
+  ].join('\n')
+  const stringToSign = ['OSS4-HMAC-SHA256', iso, scope, toHex(sha256(canonicalRequest))].join('\n')
+
+  let key = hmacSha256(`aliyun_v4${cfg.accessKeySecret}`, day)
+  key = hmacSha256(key, region)
+  key = hmacSha256(key, 'oss')
+  key = hmacSha256(key, 'aliyun_v4_request')
+  const signature = toHex(hmacSha256(key, stringToSign))
+
+  return `${cfg.host}/${encodeKey(opts.key)}?${canonicalQuery}&x-oss-signature=${signature}`
 }
 
 export class OssError extends Error {}
