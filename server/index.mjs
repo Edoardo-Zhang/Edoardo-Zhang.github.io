@@ -69,30 +69,117 @@ app.get('/api/homework', async (req, res, next) => {
   }
 })
 
-// 第一步：按文件清单生成 id 与每个文件的预签名上传地址（浏览器直传 OSS，不经过本服务器）
+/** 校验文件清单并为给定 id 生成预签名上传地址（浏览器直传 OSS，不经过本服务器）。返回 null 表示已回应错误。 */
+function makeUploads(res, id, rawFiles) {
+  const files = Array.isArray(rawFiles) ? rawFiles : []
+  if (files.length > MAX_FILES) return fail(res, 400, `一次最多上传 ${MAX_FILES} 个文件`), null
+  for (const f of files) {
+    if (typeof f?.name !== 'string' || !f.name.trim()) return fail(res, 400, '文件信息不完整'), null
+    if (Number(f.size) > MAX_FILE_BYTES) return fail(res, 400, `单个文件不能超过 ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB`), null
+  }
+  return files.map((f, i) => {
+    const type = typeof f.type === 'string' && f.type ? f.type : 'application/octet-stream'
+    const key = `${filesPrefixOf(id)}${i + 1}-${newId()}${extOf(f.name)}`
+    return {
+      key,
+      name: String(f.name),
+      size: Number(f.size) || 0,
+      type,
+      contentType: type,
+      url: presign(cfg, { method: 'PUT', key, contentType: type, expiresIn: 900 }),
+    }
+  })
+}
+
+/** 统一清洗正文字段；返回 null 表示已回应错误。 */
+function readBody(res, body) {
+  const subject = String(body.subject || '').trim()
+  const items = (Array.isArray(body.items) ? body.items : []).map((s) => String(s).trim()).filter(Boolean)
+  if (!subject) return fail(res, 400, '请填写科目'), null
+  if (items.length === 0) return fail(res, 400, '请至少填写一项作业内容'), null
+  const files = Array.isArray(body.files) ? body.files : []
+  if (files.length > MAX_FILES) return fail(res, 400, '附件数量超出限制'), null
+  return {
+    subject,
+    items,
+    due: body.due ? String(body.due) : undefined,
+    author: body.author ? String(body.author).trim() || undefined : undefined,
+    files,
+  }
+}
+
+/** 附件清单只允许本 id 目录下的 key。返回 null 表示已回应错误。 */
+function cleanFiles(res, id, files) {
+  const prefix = filesPrefixOf(id)
+  const cleaned = []
+  for (const f of files) {
+    const key = String(f?.key || '')
+    if (!key.startsWith(prefix)) return fail(res, 400, '附件路径与作业 id 不匹配'), null
+    cleaned.push({ name: String(f.name || 'file'), size: Number(f.size) || 0, type: String(f.type || 'application/octet-stream'), key })
+  }
+  return cleaned
+}
+
+// 第一步：按文件清单生成 id 与每个文件的预签名上传地址（没有附件时 uploads 为空）
 app.post('/api/homework/prepare', async (req, res, next) => {
   try {
-    const files = Array.isArray(req.body?.files) ? req.body.files : []
-    if (files.length === 0) return fail(res, 400, '没有要上传的文件')
-    if (files.length > MAX_FILES) return fail(res, 400, `一次最多上传 ${MAX_FILES} 个文件`)
-    for (const f of files) {
-      if (typeof f?.name !== 'string' || !f.name.trim()) return fail(res, 400, '文件信息不完整')
-      if (Number(f.size) > MAX_FILE_BYTES) return fail(res, 400, `单个文件不能超过 ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB`)
-    }
     const id = newId()
-    const uploads = files.map((f, i) => {
-      const type = typeof f.type === 'string' && f.type ? f.type : 'application/octet-stream'
-      const key = `${filesPrefixOf(id)}${i + 1}-${newId()}${extOf(f.name)}`
-      return {
-        key,
-        name: String(f.name),
-        size: Number(f.size) || 0,
-        type,
-        contentType: type,
-        url: presign(cfg, { method: 'PUT', key, contentType: type, expiresIn: 900 }),
-      }
-    })
+    const uploads = makeUploads(res, id, req.body?.files)
+    if (!uploads) return
     res.json({ id, prefix: cfg.prefix, uploads })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// 修改作业时为新增附件签发上传地址（沿用原作业 id 的目录）
+app.post('/api/homework/:id/prepare', async (req, res, next) => {
+  try {
+    const id = String(req.params.id || '')
+    if (!ID_RE.test(id)) return fail(res, 400, 'id 不合法')
+    if (!isHomework(await getJson(cfg, cardKeyOf(id)))) return fail(res, 404, '作业不存在或已被删除')
+    const uploads = makeUploads(res, id, req.body?.files)
+    if (!uploads) return
+    res.json({ id, prefix: cfg.prefix, uploads })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// 修改作业：保留 createdAt，写入 updatedAt；新附件须已上传，被移除的旧附件在写入成功后删除。
+app.put('/api/homework/:id', async (req, res, next) => {
+  try {
+    const id = String(req.params.id || '')
+    if (!ID_RE.test(id)) return fail(res, 400, 'id 不合法')
+    const old = await getJson(cfg, cardKeyOf(id))
+    if (!isHomework(old)) return fail(res, 404, '作业不存在或已被删除')
+    const body = readBody(res, req.body ?? {})
+    if (!body) return
+    const cleaned = cleanFiles(res, id, body.files)
+    if (!cleaned) return
+
+    const oldKeys = new Set((old.files ?? []).map((f) => String(f?.key || '')))
+    const missing = []
+    for (const f of cleaned) if (!oldKeys.has(f.key) && !(await objectExists(cfg, f.key))) missing.push(f.name)
+    if (missing.length) return fail(res, 400, `这些附件没有上传成功：${missing.join('、')}`)
+
+    const hw = {
+      id,
+      subject: body.subject,
+      items: body.items,
+      due: body.due,
+      author: body.author,
+      createdAt: old.createdAt,
+      updatedAt: Date.now(),
+      files: cleaned,
+    }
+    await putObject(cfg, cardKeyOf(id), JSON.stringify(hw), 'application/json')
+
+    const keep = new Set(cleaned.map((f) => f.key))
+    const prefix = filesPrefixOf(id)
+    const removed = [...oldKeys].filter((k) => k && !keep.has(k) && k.startsWith(prefix))
+    await Promise.allSettled(removed.map((k) => deleteObject(cfg, k)))
+    res.json({ item: hw })
   } catch (err) {
     next(err)
   }
@@ -104,29 +191,20 @@ app.post('/api/homework/commit', async (req, res, next) => {
     const body = req.body ?? {}
     const id = String(body.id || '')
     if (!ID_RE.test(id)) return fail(res, 400, 'id 不合法')
-    const subject = String(body.subject || '').trim()
-    const items = (Array.isArray(body.items) ? body.items : []).map((s) => String(s).trim()).filter(Boolean)
-    if (!subject) return fail(res, 400, '请填写科目')
-    if (items.length === 0) return fail(res, 400, '请至少填写一项作业内容')
-    const files = Array.isArray(body.files) ? body.files : []
-    if (files.length > MAX_FILES) return fail(res, 400, '附件数量超出限制')
-    const prefix = filesPrefixOf(id)
-    const cleaned = []
-    for (const f of files) {
-      const key = String(f?.key || '')
-      if (!key.startsWith(prefix)) return fail(res, 400, '附件路径与作业 id 不匹配')
-      cleaned.push({ name: String(f.name || 'file'), size: Number(f.size) || 0, type: String(f.type || 'application/octet-stream'), key })
-    }
+    const parsed = readBody(res, body)
+    if (!parsed) return
+    const cleaned = cleanFiles(res, id, parsed.files)
+    if (!cleaned) return
     const missing = []
     for (const f of cleaned) if (!(await objectExists(cfg, f.key))) missing.push(f.name)
     if (missing.length) return fail(res, 400, `这些附件没有上传成功：${missing.join('、')}`)
 
     const hw = {
       id,
-      subject,
-      items,
-      due: body.due ? String(body.due) : undefined,
-      author: body.author ? String(body.author).trim() || undefined : undefined,
+      subject: parsed.subject,
+      items: parsed.items,
+      due: parsed.due,
+      author: parsed.author,
       createdAt: Date.now(),
       files: cleaned,
     }

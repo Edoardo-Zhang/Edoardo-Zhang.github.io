@@ -9,10 +9,8 @@ interface ScenePlayerProps {
   active: boolean
   /** Stacking order: the incoming scene sits above the outgoing one while it fades in. */
   z: number
-  /** Keep looping this scene instead of handing over (homework page backdrop). */
-  hold: boolean
   fadeMs: number
-  /** Fired once per pass, `fadeMs` (+margin) before the clip ends, while active and not held. */
+  /** Fired once per pass, `fadeMs` (+margin) before the clip ends, while active. */
   onNearEnd: () => void
   /** 即将上场、需要提前预取时置 true；冷场景完全不下载。 */
   warm?: boolean
@@ -23,15 +21,13 @@ interface ScenePlayerProps {
  * its first frame and, near the end, asks the carousel to move on. Only the visible scene(s) decode;
  * the rest are paused, keeping the number of live decoders to at most two.
  */
-export default function ScenePlayer({ src, active, z, hold, fadeMs, onNearEnd, warm = false }: ScenePlayerProps) {
+export default function ScenePlayer({ src, active, z, fadeMs, onNearEnd, warm = false }: ScenePlayerProps) {
   const ref = useRef<HTMLVideoElement>(null)
-  const holdRef = useRef(hold)
   const nearEndRef = useRef(onNearEnd)
 
   useEffect(() => {
-    holdRef.current = hold
     nearEndRef.current = onNearEnd
-  }, [hold, onNearEnd])
+  }, [onNearEnd])
 
   // 首屏不再同时拉四段视频（原来 27MB 一起下，互相抢带宽，正在播的那段会卡）：
   // 只有"正在播"或"即将上场"的场景才开始加载。
@@ -65,7 +61,7 @@ export default function ScenePlayer({ src, active, z, hold, fadeMs, onNearEnd, w
     const check = () => {
       const d = v.duration
       const t = v.currentTime
-      if (!holdRef.current && d && Number.isFinite(d)) {
+      if (d && Number.isFinite(d)) {
         const lead = d - fadeMs / 1000 - END_MARGIN_S
         // If playback is refused (autoplay blocked), fall back to wall-clock time so the cycle never stalls.
         const stalled = v.paused && !document.hidden && (performance.now() - enteredAt) / 1000 >= lead
@@ -74,7 +70,6 @@ export default function ScenePlayer({ src, active, z, hold, fadeMs, onNearEnd, w
           nearEndRef.current()
         }
       }
-      if (holdRef.current && announced && t < 0.5) announced = false
     }
 
     // Watchdog: if the visible clip errors out or stops advancing, reload it and play again.
@@ -132,7 +127,7 @@ export default function ScenePlayer({ src, active, z, hold, fadeMs, onNearEnd, w
       src={src}
       muted
       autoPlay={active}
-      loop // used while held; otherwise the carousel moves on before the end
+      loop // safety net only: the carousel always moves on before the clip ends
       playsInline
       preload={active || warm ? 'auto' : 'none'}
       disablePictureInPicture

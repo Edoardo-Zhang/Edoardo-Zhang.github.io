@@ -114,6 +114,7 @@ export default function App() {
               error={error}
               onReload={reload}
               onCreated={(hw) => setHomework((prev) => [hw, ...prev])}
+              onUpdated={(hw) => setHomework((prev) => prev.map((h) => (h.id === hw.id ? hw : h)))}
               onRemoved={(id) => setHomework((prev) => prev.filter((h) => h.id !== id))}
             />
             <Footer onHome={backToHero} />

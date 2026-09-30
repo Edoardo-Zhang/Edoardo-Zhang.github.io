@@ -6,11 +6,14 @@ import {
   downloadHref,
   listHomework,
   prepareUpload,
+  prepareUploadFor,
+  updateHomework,
   uploadFile,
+  type AttachmentMeta,
   type Homework,
 } from './api'
 
-export type { Homework }
+export type { AttachmentMeta, Homework }
 
 export const MAX_FILE_BYTES = 500 * 1024 * 1024
 
@@ -85,6 +88,61 @@ export async function createHomework(
       await abortUpload(prepared.id, uploaded)
     } catch {
       /* 回滚失败不该掩盖真正的错误 */
+    }
+    throw err
+  }
+}
+
+/**
+ * 修改一份作业：只上传新增的附件，然后提交完整清单（保留的旧附件 + 新附件）。
+ * 后端写入成功后才删除被移除的旧附件；本次新传的附件在失败时回滚。
+ */
+export async function editHomework(
+  hw: Homework,
+  input: {
+    subject: string
+    items: string[]
+    due?: string
+    author?: string
+    keep: AttachmentMeta[]
+    files: File[]
+  },
+  onProgress?: (fileIndex: number, ratio: number, attempt: number) => void,
+): Promise<Homework> {
+  const uploaded: string[] = []
+  const metas: { name: string; size: number; type: string; key: string }[] = input.keep
+    .filter((f): f is AttachmentMeta & { key: string } => !!f.key)
+    .map((f) => ({ name: f.name, size: f.size, type: f.type, key: f.key }))
+  try {
+    if (input.files.length) {
+      const prepared = await prepareUploadFor(
+        hw.id,
+        input.files.map((f) => ({ name: f.name, size: f.size, type: f.type || 'application/octet-stream' })),
+      )
+      for (let i = 0; i < input.files.length; i++) {
+        const file = input.files[i]
+        const upload = prepared.uploads[i]
+        await uploadFile(upload, file, (ratio) => onProgress?.(i, ratio, 1), {
+          onRetry: (attempt) => onProgress?.(i, 0, attempt),
+        })
+        uploaded.push(upload.key)
+        metas.push({ name: file.name, size: file.size, type: file.type || 'application/octet-stream', key: upload.key })
+      }
+    }
+    return await updateHomework(hw.id, {
+      subject: input.subject,
+      items: input.items,
+      due: input.due || undefined,
+      author: input.author || undefined,
+      files: metas,
+    })
+  } catch (err) {
+    if (uploaded.length) {
+      try {
+        await abortUpload(hw.id, uploaded)
+      } catch {
+        /* 回滚失败不该掩盖真正的错误 */
+      }
     }
     throw err
   }

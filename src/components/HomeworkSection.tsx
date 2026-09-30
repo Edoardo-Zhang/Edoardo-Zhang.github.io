@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type Dra
 import {
   MAX_FILE_BYTES,
   createHomework,
+  editHomework,
   fileKind,
   formatBytes,
   formatDate,
   isMine,
   removeHomework,
   storageLabel,
+  type AttachmentMeta,
   type Homework,
 } from '../lib/homework'
 import { downloadHref } from '../lib/api'
@@ -22,11 +24,13 @@ interface Props {
   error: string | null
   onReload: () => void
   onCreated: (hw: Homework) => void
+  onUpdated: (hw: Homework) => void
   onRemoved: (id: string) => void
 }
 
-export default function HomeworkSection({ headingRef, mood, homework, loading, error, onReload, onCreated, onRemoved }: Props) {
+export default function HomeworkSection({ headingRef, mood, homework, loading, error, onReload, onCreated, onUpdated, onRemoved }: Props) {
   const [composing, setComposing] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   return (
     <section id="homework" className="anchor-section relative px-4 pt-24 pb-24 sm:px-8 sm:pt-32 sm:pb-32">
@@ -85,15 +89,33 @@ export default function HomeworkSection({ headingRef, mood, homework, loading, e
           {composing && (
             <Composer
               onCancel={() => setComposing(false)}
-              onCreated={(hw) => {
+              onDone={(hw) => {
                 setComposing(false)
                 onCreated(hw)
               }}
             />
           )}
-          {homework.map((hw, i) => (
-            <HomeworkCard key={hw.id} hw={hw} index={i} onRemoved={onRemoved} />
-          ))}
+          {homework.map((hw, i) =>
+            hw.id === editingId ? (
+              <Composer
+                key={hw.id}
+                initial={hw}
+                onCancel={() => setEditingId(null)}
+                onDone={(updated) => {
+                  setEditingId(null)
+                  onUpdated(updated)
+                }}
+              />
+            ) : (
+              <HomeworkCard
+                key={hw.id}
+                hw={hw}
+                index={i}
+                onEdit={editingId ? undefined : () => setEditingId(hw.id)}
+                onRemoved={onRemoved}
+              />
+            ),
+          )}
         </div>
 
         {!loading && !error && homework.length === 0 && !composing && (
@@ -116,7 +138,18 @@ export default function HomeworkSection({ headingRef, mood, homework, loading, e
 
 /* ------------------------------------------------------------------ */
 
-function HomeworkCard({ hw, index, onRemoved }: { hw: Homework; index: number; onRemoved: (id: string) => void }) {
+function HomeworkCard({
+  hw,
+  index,
+  onEdit,
+  onRemoved,
+}: {
+  hw: Homework
+  index: number
+  /** Absent while another card is being edited. */
+  onEdit?: () => void
+  onRemoved: (id: string) => void
+}) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -145,6 +178,7 @@ function HomeworkCard({ hw, index, onRemoved }: { hw: Homework; index: number; o
           <p className="mt-1.5 text-xs text-white/45">
             {formatDate(hw.createdAt)}
             {hw.author && <> · {hw.author}</>}
+            {hw.updatedAt && <span title={`修改于 ${formatDate(hw.updatedAt)}`}> · 已修改</span>}
           </p>
         </div>
         {hw.due && (
@@ -209,9 +243,16 @@ function HomeworkCard({ hw, index, onRemoved }: { hw: Homework; index: number; o
               </button>
             </>
           ) : (
-            <button type="button" onClick={() => setConfirming(true)} className="cursor-pointer rounded-full px-3 py-1 text-white/40 hover:text-white/80">
-              删除
-            </button>
+            <>
+              {onEdit && (
+                <button type="button" onClick={onEdit} className="cursor-pointer rounded-full px-3 py-1 text-white/55 hover:bg-white/10 hover:text-white">
+                  修改
+                </button>
+              )}
+              <button type="button" onClick={() => setConfirming(true)} className="cursor-pointer rounded-full px-3 py-1 text-white/40 hover:text-white/80">
+                删除
+              </button>
+            </>
           )}
         </footer>
       )}
@@ -221,11 +262,15 @@ function HomeworkCard({ hw, index, onRemoved }: { hw: Homework; index: number; o
 
 /* ------------------------------------------------------------------ */
 
-function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (hw: Homework) => void }) {
-  const [subject, setSubject] = useState('')
-  const [items, setItems] = useState<string[]>([''])
-  const [due, setDue] = useState('')
-  const [author, setAuthor] = useState('')
+/** New homework, or — with `initial` — edit an existing card in place. */
+function Composer({ initial, onCancel, onDone }: { initial?: Homework; onCancel: () => void; onDone: (hw: Homework) => void }) {
+  const editing = !!initial
+  const [subject, setSubject] = useState(initial?.subject ?? '')
+  const [items, setItems] = useState<string[]>(initial?.items.length ? initial.items : [''])
+  const [due, setDue] = useState(initial?.due ?? '')
+  const [author, setAuthor] = useState(initial?.author ?? '')
+  /** Attachments already on the card that are being kept (edit mode). */
+  const [keep, setKeep] = useState<AttachmentMeta[]>(initial?.files ?? [])
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -321,10 +366,11 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
     setSubmitting(true)
     setError(null)
     try {
-      const hw = await createHomework({ subject, items: cleanItems, due, author, files }, (index, ratio, attempt) =>
-        setProgress({ index, ratio, attempt }),
-      )
-      onCreated(hw)
+      const report = (index: number, ratio: number, attempt: number) => setProgress({ index, ratio, attempt })
+      const hw = initial
+        ? await editHomework(initial, { subject, items: cleanItems, due, author, keep, files }, report)
+        : await createHomework({ subject, items: cleanItems, due, author, files }, report)
+      onDone(hw)
     } catch (err) {
       const msg = err instanceof Error ? err.message : '保存失败，请稍后再试'
       setError(files.length > 0 ? `${msg}（本次已上传的附件已回滚，可直接重试）` : msg)
@@ -341,10 +387,10 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
       ref={cardRef}
       onSubmit={submit}
       className="liquid-glass liquid-glass-card rise-in flex flex-col rounded-3xl p-6 sm:p-7 md:col-span-2 lg:col-span-2"
-      aria-label="布置新作业"
+      aria-label={editing ? '修改作业' : '布置新作业'}
     >
       <div className="flex items-center justify-between">
-        <p className="text-xs tracking-[0.3em] text-white/45">新作业</p>
+        <p className="text-xs tracking-[0.3em] text-white/45">{editing ? '修改作业' : '新作业'}</p>
         <button type="button" onClick={onCancel} disabled={submitting} className="cursor-pointer text-sm text-white/45 hover:text-white disabled:opacity-40">
           取消
         </button>
@@ -470,6 +516,29 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
             {`上传到班级服务器 · 单个不超过 ${formatBytes(MAX_FILE_BYTES)}`}
           </span>
         </label>
+        {keep.length > 0 && (
+          <ul className="mt-3 space-y-2" aria-label="已有附件">
+            {keep.map((f) => (
+              <li key={f.key ?? f.name} className="flex items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2 text-sm">
+                <span className="w-12 shrink-0 truncate text-center text-[0.62rem] tracking-wider text-white/60">{fileKind(f)}</span>
+                <span className="min-w-0 flex-1 truncate text-white/85" title={f.name}>
+                  {f.name}
+                </span>
+                <span className="shrink-0 text-xs text-white/40">已上传 · {formatBytes(f.size)}</span>
+                {!submitting && (
+                  <button
+                    type="button"
+                    onClick={() => setKeep((prev) => prev.filter((x) => x !== f))}
+                    aria-label={`移除 ${f.name}`}
+                    className="cursor-pointer px-1 text-white/35 hover:text-white"
+                  >
+                    ×
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
         {files.length > 0 && (
           <ul className="mt-3 space-y-2">
             {files.map((f, i) => (
@@ -523,7 +592,7 @@ function Composer({ onCancel, onCreated }: { onCancel: () => void; onCreated: (h
           disabled={submitting}
           className={`cursor-pointer rounded-full bg-white px-6 py-2.5 text-sm font-medium text-[#0d1520] transition hover:bg-white/90 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${ready ? '' : 'opacity-60'}`}
         >
-          {submitting ? '保存中…' : '发布作业'}
+          {submitting ? '保存中…' : editing ? '保存修改' : '发布作业'}
         </button>
       </div>
     </form>

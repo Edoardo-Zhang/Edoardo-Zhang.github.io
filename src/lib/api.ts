@@ -14,6 +14,7 @@ export interface Homework {
   due?: string
   author?: string
   createdAt: number
+  updatedAt?: number
   files: AttachmentMeta[]
 }
 
@@ -67,6 +68,31 @@ export interface PreparedUpload {
 /** 第一步：把文件清单交给后端，换回每个文件的临时上传地址。 */
 export function prepareUpload(files: { name: string; size: number; type: string }[]) {
   return postJson<{ id: string; prefix: string; uploads: PreparedUpload[] }>('/api/homework/prepare', { files })
+}
+
+/** 修改作业时，为新增附件换取上传地址（沿用原作业 id）。 */
+export function prepareUploadFor(id: string, files: { name: string; size: number; type: string }[]) {
+  return postJson<{ id: string; prefix: string; uploads: PreparedUpload[] }>(`/api/homework/${encodeURIComponent(id)}/prepare`, { files })
+}
+
+/** 保存修改：files 是修改后完整的附件清单（保留的旧附件 + 新上传的）。 */
+export async function updateHomework(
+  id: string,
+  payload: {
+    subject: string
+    items: string[]
+    due?: string
+    author?: string
+    files: { name: string; size: number; type: string; key: string }[]
+  },
+): Promise<Homework> {
+  const res = await fetch(`/api/homework/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) await fail(res, '保存修改失败')
+  return ((await res.json()) as { item: Homework }).item
 }
 
 /** 第二步：文件传完后落库（后端会先确认对象真的存在）。 */

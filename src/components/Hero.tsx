@@ -17,16 +17,16 @@ interface HeroProps {
 }
 
 export default function Hero({ active: visible = true, onGetHomework }: HeroProps) {
-  // Hold the current scene while the homework page uses it as a backdrop.
+  // The carousel keeps running on the homework page too, so the backdrop never loops a single clip.
   const { active, select, advance } = useSceneCycle(SCENES.length)
   const [mood, setMood] = useState('')
   const [warmIndex, setWarmIndex] = useState<number | null>(null)
   const isForest = active === FOREST
 
-  // 先让当前这段独享带宽 2.5 秒，再预取下一段：首屏出画更快，下一段也来得及缓冲。
+  // 先让当前这段独享带宽 1 秒，再预取下一段：首屏出画不受影响，下一段也有近 2 秒缓冲（每段只停留约 3 秒）。
   useEffect(() => {
     setWarmIndex(null)
-    const t = window.setTimeout(() => setWarmIndex((active + 1) % SCENES.length), 2500)
+    const t = window.setTimeout(() => setWarmIndex((active + 1) % SCENES.length), 1000)
     return () => window.clearTimeout(t)
   }, [active])
 
@@ -53,7 +53,6 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
             active={i === active}
             warm={i === warmIndex}
             z={i === active ? 2 : 1}
-            hold={!visible}
             fadeMs={FADE_MS}
             onNearEnd={advance}
           />
