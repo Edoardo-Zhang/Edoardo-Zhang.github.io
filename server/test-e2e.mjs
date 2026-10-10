@@ -1,5 +1,23 @@
 // 端到端测试：对着真实 OSS 跑完整流程（发布 → 上传 → 提交 → 列表 → 下载 → 回滚 → 删除）
 const BASE = process.env.BASE || 'http://127.0.0.1:3000'
+
+// 管理卡片需要管理员登录：先用 ADMIN_ID / ADMIN_PASSWORD 登录，之后发往 BASE 的请求自动带上会话 Cookie
+const _fetch = globalThis.fetch
+let _cookie = ''
+globalThis.fetch = (url, init = {}) =>
+  _cookie && String(url).startsWith(BASE) ? _fetch(url, { ...init, headers: { ...(init.headers || {}), Cookie: _cookie } }) : _fetch(url, init)
+{
+  const r = await _fetch(BASE + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: process.env.ADMIN_NAME || '管理员', studentId: process.env.ADMIN_ID, password: process.env.ADMIN_PASSWORD }),
+  })
+  _cookie = (r.headers.get('set-cookie') || '').split(';')[0]
+  if (!r.ok || !_cookie) {
+    console.error('管理员登录失败：请设置环境变量 ADMIN_ID / ADMIN_PASSWORD（及 ADMIN_NAME，如首次登录用的不是“管理员”）')
+    process.exit(1)
+  }
+}
 const out = {}
 let pass = 0, failCount = 0
 const check = (name, ok, extra) => {

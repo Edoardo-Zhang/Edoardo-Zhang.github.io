@@ -1,6 +1,24 @@
 // 修改流程端到端测试：发布 -> 改内容 -> 加附件 -> 删旧附件 -> 校验 -> 删除
 // 用真实 OSS 跑；跑完不留残留。
 const BASE = process.env.BASE || 'http://127.0.0.1:3000'
+
+// 管理卡片需要管理员登录：先用 ADMIN_ID / ADMIN_PASSWORD 登录，之后发往 BASE 的请求自动带上会话 Cookie
+const _fetch = globalThis.fetch
+let _cookie = ''
+globalThis.fetch = (url, init = {}) =>
+  _cookie && String(url).startsWith(BASE) ? _fetch(url, { ...init, headers: { ...(init.headers || {}), Cookie: _cookie } }) : _fetch(url, init)
+{
+  const r = await _fetch(BASE + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: process.env.ADMIN_NAME || '管理员', studentId: process.env.ADMIN_ID, password: process.env.ADMIN_PASSWORD }),
+  })
+  _cookie = (r.headers.get('set-cookie') || '').split(';')[0]
+  if (!r.ok || !_cookie) {
+    console.error('管理员登录失败：请设置环境变量 ADMIN_ID / ADMIN_PASSWORD（及 ADMIN_NAME，如首次登录用的不是“管理员”）')
+    process.exit(1)
+  }
+}
 const out = {}
 let pass = 0, bad = 0
 const check = (n, ok, extra) => { out[n] = (ok ? 'PASS' : 'FAIL') + (extra ? ' ' + extra : ''); ok ? pass++ : bad++ }
@@ -11,6 +29,8 @@ const api = async (p, init) => {
   try { body = JSON.parse(text) } catch { body = { raw: text.slice(0, 200) } }
   return { status: res.status, body }
 }
+// 存储前缀以后端实际配置为准（测试时可能是 zuoyexiang/_test/）
+const PREFIX = (await (await fetch(BASE + '/api/health')).json()).prefix
 const put = async (u, content, type) => (await fetch(u, { method: 'PUT', headers: { 'Content-Type': type }, body: content })).status
 
 // 1) 发布：2 个附件
@@ -25,7 +45,7 @@ const removedKey = prep.body.uploads[1].key
 
 // 2) 修改：加一个新附件（沿用同一个 id 目录）
 const prep2 = await api('/api/homework/' + id + '/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'c.txt', size: 3, type: 'text/plain' }] }) })
-check('prepare-for-id', prep2.status === 200 && prep2.body.uploads[0].key.startsWith('zuoyexiang/files/' + id + '/'), 'key=' + (prep2.body.uploads[0]?.key ?? ''))
+check('prepare-for-id', prep2.status === 200 && prep2.body.uploads[0].key.startsWith(PREFIX + 'files/' + id + '/'), 'key=' + (prep2.body.uploads[0]?.key ?? ''))
 await put(prep2.body.uploads[0].url, 'ccc', 'text/plain')
 
 // 3) 提交修改：保留 a.txt，移除 b.txt，加入 c.txt，改科目

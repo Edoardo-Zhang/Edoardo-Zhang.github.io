@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, type PointerEvent } from 'react'
 import { FADE_MS, useSceneCycle } from '../hooks/useSceneCycle'
 import ScenePlayer from './ScenePlayer'
 
@@ -20,18 +20,12 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
   const heroRef = useRef<HTMLElement>(null)
   const pointerFrame = useRef<number | null>(null)
   // The carousel keeps running on the homework page too, so the backdrop never loops a single clip.
-  const { active, select, advance } = useSceneCycle(SCENES.length)
-  const [warming, setWarming] = useState<{ scene: number; next: number | null }>({ scene: 0, next: null })
-  const warmIndex = warming.scene === active ? warming.next : null
+  const { active, ready, select, advance, markReady } = useSceneCycle(SCENES.length)
+  // 按顺序预取：当前这段完整下载后才开始下载下一段，弱网下两段不会互相抢带宽。
+  const warmIndex = ready[active] ? (active + 1) % SCENES.length : null
 
   // 字体颜色与画面交叉淡化同时开始、同样时长、同一缓动：字色始终跟着画面走，不提前也不滞后。
   const isForest = active === FOREST
-
-  // 首段先独享短暂带宽；随后预取下一段。压缩后的片段约 1 MB，可在切换前缓冲。
-  useEffect(() => {
-    const t = window.setTimeout(() => setWarming({ scene: active, next: (active + 1) % SCENES.length }), 500)
-    return () => window.clearTimeout(t)
-  }, [active])
 
   useEffect(() => () => {
     if (pointerFrame.current !== null) cancelAnimationFrame(pointerFrame.current)
@@ -80,6 +74,7 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
             z={i === active ? 2 : 1}
             fadeMs={FADE_MS}
             onNearEnd={advance}
+            onReady={() => markReady(i)}
           />
         ))}
       </div>

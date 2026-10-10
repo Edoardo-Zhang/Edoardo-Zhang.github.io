@@ -34,6 +34,7 @@ export async function createHomework(
     items: string[]
     due?: string
     author?: string
+    collect?: boolean
     files: File[]
   },
   onProgress?: (fileIndex: number, ratio: number, attempt: number) => void,
@@ -57,6 +58,7 @@ export async function createHomework(
       items: input.items,
       due: input.due || undefined,
       author: input.author || undefined,
+      collect: !!input.collect,
       files: metas,
     })
     return item
@@ -81,6 +83,7 @@ export async function editHomework(
     items: string[]
     due?: string
     author?: string
+    collect?: boolean
     keep: AttachmentMeta[]
     files: File[]
   },
@@ -111,6 +114,7 @@ export async function editHomework(
       items: input.items,
       due: input.due || undefined,
       author: input.author || undefined,
+      collect: !!input.collect,
       files: metas,
     })
   } catch (err) {

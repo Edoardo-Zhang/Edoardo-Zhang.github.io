@@ -7,6 +7,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readOssConfig, presign } from './oss.mjs'
 import { putObject, getJson, deleteObject, objectExists, listKeys, downloadUrl } from './store.mjs'
+import { createAuth } from './auth.mjs'
+import { createSubmissions } from './submissions.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -34,6 +36,8 @@ const MAX_FILES = Number(process.env.MAX_FILES || 20)
 
 const app = express()
 app.disable('x-powered-by')
+// 只信任本机 nginx 传来的 X-Forwarded-For，用于登录限流按真实 IP 计数
+app.set('trust proxy', 'loopback')
 app.use(express.json({ limit: '1mb' }))
 
 const ID_RE = /^[a-z0-9]{4,20}-[0-9a-f]{8,32}$/
@@ -47,6 +51,27 @@ const cardKeyOf = (id) => `${cfg.prefix}cards/${id}.json`
 const isHomework = (v) => !!v && typeof v.id === 'string' && typeof v.subject === 'string' && Array.isArray(v.items)
 const fail = (res, status, message) => res.status(status).json({ error: message })
 
+// ---- 作业卡片缓存：列表只在有写入时才重新从 OSS 读取 ----
+let cardsCache = null
+async function listCards() {
+  if (cardsCache) return cardsCache
+  const keys = (await listKeys(cfg, `${cfg.prefix}cards/`)).filter((k) => k.endsWith('.json'))
+  const loaded = await Promise.all(keys.map((k) => getJson(cfg, k).catch(() => null)))
+  cardsCache = loaded.filter(isHomework).sort((a, b) => b.createdAt - a.createdAt)
+  return cardsCache
+}
+async function getCard(id) {
+  if (!ID_RE.test(String(id || ''))) return null
+  const card = await getJson(cfg, cardKeyOf(id))
+  return isHomework(card) ? card : null
+}
+const invalidateCards = () => {
+  cardsCache = null
+}
+
+const auth = createAuth(cfg)
+const { requireUser, requireAdmin } = auth
+
 app.use((req, res, next) => {
   const t0 = Date.now()
   res.on('finish', () => console.log(`${new Date().toISOString()} ${req.method} ${req.path} ${res.statusCode} ${Date.now() - t0}ms`))
@@ -57,20 +82,25 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, bucket: cfg.bucket, prefix: cfg.prefix, time: Date.now() })
 })
 
-app.get('/api/homework', async (req, res, next) => {
+// ---- 登录 ----
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next)
+app.post('/api/auth/login', wrap(auth.login))
+app.get('/api/auth/me', (req, res) => res.json({ user: auth.readSession(req) }))
+app.post('/api/auth/logout', (req, res) => {
+  auth.clear(res)
+  res.json({ ok: true })
+})
+
+app.get('/api/homework', requireUser, async (req, res, next) => {
   try {
-    const keys = (await listKeys(cfg, `${cfg.prefix}cards/`)).filter((k) => k.endsWith('.json'))
-    const loaded = await Promise.all(keys.map((k) => getJson(cfg, k).catch(() => null)))
-    const items = loaded.filter(isHomework)
-    items.sort((a, b) => b.createdAt - a.createdAt)
-    res.json({ items })
+    res.json({ items: await listCards() })
   } catch (err) {
     next(err)
   }
 })
 
 /** 校验文件清单并为给定 id 生成预签名上传地址（浏览器直传 OSS，不经过本服务器）。返回 null 表示已回应错误。 */
-function makeUploads(res, id, rawFiles) {
+function makeUploads(res, id, rawFiles, keyOf = (i, ext) => `${filesPrefixOf(id)}${i + 1}-${newId()}${ext}`) {
   const files = Array.isArray(rawFiles) ? rawFiles : []
   if (files.length > MAX_FILES) return fail(res, 400, `一次最多上传 ${MAX_FILES} 个文件`), null
   for (const f of files) {
@@ -79,7 +109,7 @@ function makeUploads(res, id, rawFiles) {
   }
   return files.map((f, i) => {
     const type = typeof f.type === 'string' && f.type ? f.type : 'application/octet-stream'
-    const key = `${filesPrefixOf(id)}${i + 1}-${newId()}${extOf(f.name)}`
+    const key = keyOf(i, extOf(f.name))
     return {
       key,
       name: String(f.name),
@@ -104,6 +134,7 @@ function readBody(res, body) {
     items,
     due: body.due ? String(body.due) : undefined,
     author: body.author ? String(body.author).trim() || undefined : undefined,
+    collect: !!body.collect,
     files,
   }
 }
@@ -121,7 +152,7 @@ function cleanFiles(res, id, files) {
 }
 
 // 第一步：按文件清单生成 id 与每个文件的预签名上传地址（没有附件时 uploads 为空）
-app.post('/api/homework/prepare', async (req, res, next) => {
+app.post('/api/homework/prepare', requireAdmin, async (req, res, next) => {
   try {
     const id = newId()
     const uploads = makeUploads(res, id, req.body?.files)
@@ -133,7 +164,7 @@ app.post('/api/homework/prepare', async (req, res, next) => {
 })
 
 // 修改作业时为新增附件签发上传地址（沿用原作业 id 的目录）
-app.post('/api/homework/:id/prepare', async (req, res, next) => {
+app.post('/api/homework/:id/prepare', requireAdmin, async (req, res, next) => {
   try {
     const id = String(req.params.id || '')
     if (!ID_RE.test(id)) return fail(res, 400, 'id 不合法')
@@ -147,7 +178,7 @@ app.post('/api/homework/:id/prepare', async (req, res, next) => {
 })
 
 // 修改作业：保留 createdAt，写入 updatedAt；新附件须已上传，被移除的旧附件在写入成功后删除。
-app.put('/api/homework/:id', async (req, res, next) => {
+app.put('/api/homework/:id', requireAdmin, async (req, res, next) => {
   try {
     const id = String(req.params.id || '')
     if (!ID_RE.test(id)) return fail(res, 400, 'id 不合法')
@@ -169,11 +200,13 @@ app.put('/api/homework/:id', async (req, res, next) => {
       items: body.items,
       due: body.due,
       author: body.author,
+      collect: body.collect,
       createdAt: old.createdAt,
       updatedAt: Date.now(),
       files: cleaned,
     }
     await putObject(cfg, cardKeyOf(id), JSON.stringify(hw), 'application/json')
+    invalidateCards()
 
     const keep = new Set(cleaned.map((f) => f.key))
     const prefix = filesPrefixOf(id)
@@ -186,7 +219,7 @@ app.put('/api/homework/:id', async (req, res, next) => {
 })
 
 // 第二步：文件都传完后写作业卡片。会先确认每个对象真的存在。
-app.post('/api/homework/commit', async (req, res, next) => {
+app.post('/api/homework/commit', requireAdmin, async (req, res, next) => {
   try {
     const body = req.body ?? {}
     const id = String(body.id || '')
@@ -205,10 +238,12 @@ app.post('/api/homework/commit', async (req, res, next) => {
       items: parsed.items,
       due: parsed.due,
       author: parsed.author,
+      collect: parsed.collect,
       createdAt: Date.now(),
       files: cleaned,
     }
     await putObject(cfg, cardKeyOf(id), JSON.stringify(hw), 'application/json')
+    invalidateCards()
     res.json({ item: hw })
   } catch (err) {
     next(err)
@@ -216,7 +251,7 @@ app.post('/api/homework/commit', async (req, res, next) => {
 })
 
 // 失败回滚：删掉本次已上传的附件（只允许删本 id 目录下的）
-app.post('/api/homework/:id/abort', async (req, res, next) => {
+app.post('/api/homework/:id/abort', requireAdmin, async (req, res, next) => {
   try {
     const id = String(req.params.id || '')
     if (!ID_RE.test(id)) return fail(res, 400, 'id 不合法')
@@ -229,12 +264,14 @@ app.post('/api/homework/:id/abort', async (req, res, next) => {
   }
 })
 
-app.delete('/api/homework/:id', async (req, res, next) => {
+app.delete('/api/homework/:id', requireAdmin, async (req, res, next) => {
   try {
     const id = String(req.params.id || '')
     if (!ID_RE.test(id)) return fail(res, 400, 'id 不合法')
     const card = await getJson(cfg, cardKeyOf(id))
     await deleteObject(cfg, cardKeyOf(id))
+    invalidateCards()
+    // 注意：学生的提交（submissions/）不随卡片删除，确保收上来的作业不会丢
     const prefix = filesPrefixOf(id)
     const keys = (card?.files ?? []).map((f) => String(f?.key || '')).filter((k) => k.startsWith(prefix))
     await Promise.allSettled(keys.map((k) => deleteObject(cfg, k)))
@@ -244,17 +281,40 @@ app.delete('/api/homework/:id', async (req, res, next) => {
   }
 })
 
-// 下载：校验 key 在前缀内，302 到短期签名链接（链接不会暴露 AccessKey）
-app.get('/api/download', (req, res, next) => {
+// 下载作业附件：只允许 files/ 下的对象（学生交的作业只有管理员能下）
+app.get('/api/download', requireUser, (req, res, next) => {
   try {
     const key = String(req.query.key || '')
-    if (!key.startsWith(cfg.prefix) || key.includes('..')) return fail(res, 400, 'key 不合法')
+    if (!key.startsWith(`${cfg.prefix}files/`) || key.includes('..')) return fail(res, 400, 'key 不合法')
     res.setHeader('Cache-Control', 'no-store')
     res.redirect(302, downloadUrl(cfg, key, String(req.query.name || 'download')))
   } catch (err) {
     next(err)
   }
 })
+
+// ---- 收作业 ----
+const submissions = createSubmissions({
+  cfg,
+  getCard,
+  makeUploads,
+  listUsers: auth.listUsers,
+  listCards,
+  isAdminId: auth.isAdminId,
+})
+app.post('/api/homework/:id/submit/prepare', requireUser, wrap(submissions.prepare))
+app.post('/api/homework/:id/submit/commit', requireUser, wrap(submissions.commit))
+app.post('/api/homework/:id/submit/abort', requireUser, wrap(submissions.abort))
+app.get('/api/homework/:id/my-submission', requireUser, wrap(submissions.mine))
+
+// ---- 管理员 ----
+app.get('/api/admin/stats', requireAdmin, wrap(submissions.stats))
+app.get('/api/admin/file', requireAdmin, submissions.fileLink)
+app.delete('/api/admin/users/:studentId', requireAdmin, wrap(async (req, res) => {
+  const ok = await auth.unbindUser(String(req.params.studentId))
+  if (!ok) return fail(res, 400, '学号须为 10 位数字')
+  res.json({ ok: true })
+}))
 
 app.use('/api', (req, res) => fail(res, 404, '接口不存在'))
 

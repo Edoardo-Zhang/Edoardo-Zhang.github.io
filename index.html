@@ -15,7 +15,8 @@
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- 脚本还在下载时（弱网下可能要好几秒）先显示第一段风景的静帧，避免黑屏；React 首次渲染时会自动替换掉它 -->
+    <div id="root"><div style="position:fixed;inset:0;background:#000 url(input-assets/golden-hour-v2.webp) center/cover no-repeat" aria-hidden="true"></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

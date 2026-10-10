@@ -12,10 +12,13 @@ import {
   type Homework,
 } from '../lib/homework'
 import { downloadHref } from '../lib/api'
+import SubmitPanel from './SubmitPanel'
 
 const SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
 
 interface Props {
+  /** 只有管理员能布置、修改、删除作业。 */
+  isAdmin: boolean
   headingRef?: RefObject<HTMLHeadingElement | null>
   mood: string
   homework: Homework[]
@@ -27,7 +30,7 @@ interface Props {
   onRemoved: (id: string) => void
 }
 
-export default function HomeworkSection({ headingRef, mood, homework, loading, error, onReload, onCreated, onUpdated, onRemoved }: Props) {
+export default function HomeworkSection({ isAdmin, headingRef, mood, homework, loading, error, onReload, onCreated, onUpdated, onRemoved }: Props) {
   const [composing, setComposing] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -66,15 +69,17 @@ export default function HomeworkSection({ headingRef, mood, homework, loading, e
             >
               {loading ? '同步中…' : '刷新'}
             </button>
-            <button
-              type="button"
-              onClick={() => setComposing(true)}
-              disabled={composing}
-              className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-white px-5 py-2 text-sm font-medium text-[#0d1520] transition hover:bg-white/90 active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
-            >
-              <span aria-hidden="true" className="text-base leading-none">＋</span>
-              布置作业
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setComposing(true)}
+                disabled={composing}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-white px-5 py-2 text-sm font-medium text-[#0d1520] transition hover:bg-white/90 active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
+              >
+                <span aria-hidden="true" className="text-base leading-none">＋</span>
+                布置作业
+              </button>
+            )}
           </div>
         </header>
 
@@ -110,6 +115,7 @@ export default function HomeworkSection({ headingRef, mood, homework, loading, e
                 key={hw.id}
                 hw={hw}
                 index={i}
+                canManage={isAdmin}
                 onEdit={editingId ? undefined : () => setEditingId(hw.id)}
                 onRemoved={onRemoved}
               />
@@ -120,7 +126,6 @@ export default function HomeworkSection({ headingRef, mood, homework, loading, e
         {!loading && !error && homework.length === 0 && !composing && (
           <div className="mt-4 flex flex-col items-center py-16 text-center">
             <p className="font-headline text-2xl text-white/80">此处安静无声</p>
-            <p className="mt-3 text-sm text-white/45">还没有作业。点击“布置作业”，写下第一份。</p>
           </div>
         )}
         {loading && homework.length === 0 && (
@@ -140,11 +145,13 @@ export default function HomeworkSection({ headingRef, mood, homework, loading, e
 function HomeworkCard({
   hw,
   index,
+  canManage,
   onEdit,
   onRemoved,
 }: {
   hw: Homework
   index: number
+  canManage: boolean
   /** Absent while another card is being edited. */
   onEdit?: () => void
   onRemoved: (id: string) => void
@@ -177,6 +184,7 @@ function HomeworkCard({
             {formatDate(hw.createdAt)}
             {hw.author && <> · {hw.author}</>}
             {hw.updatedAt && <span title={`修改于 ${formatDate(hw.updatedAt)}`}> · 已修改</span>}
+            {hw.collect && <span className="ml-2 rounded-full bg-emerald-300/10 px-2 py-0.5 text-emerald-200/80">收作业中</span>}
           </p>
         </div>
         {hw.due && (
@@ -223,7 +231,10 @@ function HomeworkCard({
         </ul>
       )}
 
-      {/* Everyone can edit or delete any card — no login by design. */}
+      {hw.collect && <SubmitPanel cardId={hw.id} due={hw.due} />}
+
+      {/* 只有管理员能修改、删除卡片（服务器同样会校验）。 */}
+      {canManage && (
       <footer className="mt-auto flex items-center justify-end gap-2 pt-6 text-xs">
         {err && <span className="mr-auto text-rose-300">{err}</span>}
         {confirming ? (
@@ -253,6 +264,7 @@ function HomeworkCard({
           </>
         )}
       </footer>
+      )}
     </article>
   )
 }
@@ -266,6 +278,7 @@ function Composer({ initial, onCancel, onDone }: { initial?: Homework; onCancel:
   const [items, setItems] = useState<string[]>(initial?.items.length ? initial.items : [''])
   const [due, setDue] = useState(initial?.due ?? '')
   const [author, setAuthor] = useState(initial?.author ?? '')
+  const [collect, setCollect] = useState(!!initial?.collect)
   /** Attachments already on the card that are being kept (edit mode). */
   const [keep, setKeep] = useState<AttachmentMeta[]>(initial?.files ?? [])
   const [files, setFiles] = useState<File[]>([])
@@ -365,8 +378,8 @@ function Composer({ initial, onCancel, onDone }: { initial?: Homework; onCancel:
     try {
       const report = (index: number, ratio: number, attempt: number) => setProgress({ index, ratio, attempt })
       const hw = initial
-        ? await editHomework(initial, { subject, items: cleanItems, due, author, keep, files }, report)
-        : await createHomework({ subject, items: cleanItems, due, author, files }, report)
+        ? await editHomework(initial, { subject, items: cleanItems, due, author, collect, keep, files }, report)
+        : await createHomework({ subject, items: cleanItems, due, author, collect, files }, report)
       onDone(hw)
     } catch (err) {
       const msg = err instanceof Error ? err.message : '保存失败，请稍后再试'
@@ -485,6 +498,20 @@ function Composer({ initial, onCancel, onDone }: { initial?: Homework; onCancel:
           ＋ 添加一项
         </button>
       </fieldset>
+
+      <label className="mt-7 flex cursor-pointer items-start gap-3 rounded-2xl bg-white/[0.03] px-4 py-3">
+        <input type="checkbox" checked={collect} onChange={(e) => setCollect(e.target.checked)} className="peer sr-only" />
+        <span
+          aria-hidden="true"
+          className="relative mt-0.5 h-5 w-9 shrink-0 rounded-full bg-white/15 transition-colors peer-checked:bg-emerald-300/70 peer-focus-visible:ring-2 peer-focus-visible:ring-white/60 after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"
+        />
+        <span>
+          <span className="block text-sm text-white/85">开启收作业</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-white/45">
+            打开后，同学在这张卡片上会看到“交作业”按钮，可上传文件；截止日期之后提交会标记为迟交。
+          </span>
+        </span>
+      </label>
 
       <div className="mt-7">
         <span className="text-xs text-white/50">附件（可选，任意格式）</span>

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Hero from './components/Hero'
+import AdminStats from './components/AdminStats'
 import HomeworkSection from './components/HomeworkSection'
+import LoginDialog from './components/LoginDialog'
+import { fetchMe, logout, type SessionUser } from './lib/api'
 import { loadHomework, type Homework } from './lib/homework'
 
 type View = 'hero' | 'homework'
@@ -14,6 +17,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [mood, setMood] = useState('')
   const [view, setView] = useState<View>(viewFromHash)
+  /** undefined = 还在确认登录状态；null = 未登录 */
+  const [user, setUser] = useState<SessionUser | null | undefined>(undefined)
+  const [loginOpen, setLoginOpen] = useState(false)
   const pageRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
 
@@ -31,8 +37,22 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    void reload()
-  }, [reload])
+    void fetchMe().then(setUser)
+  }, [])
+
+  // 登录后才读作业（未登录时接口返回 401）
+  useEffect(() => {
+    if (user) void reload()
+  }, [user, reload])
+
+  // 直接打开 #homework 但还没登录：退回首屏并弹出登录框
+  useEffect(() => {
+    if (user === null && view === 'homework') {
+      history.replaceState(null, '', location.pathname + location.search)
+      setView('hero')
+      setLoginOpen(true)
+    }
+  }, [user, view])
 
   // Browser back/forward moves between the two views.
   useEffect(() => {
@@ -43,6 +63,10 @@ export default function App() {
 
   const enterHomework = (m: string) => {
     setMood(m)
+    if (!user) {
+      setLoginOpen(true)
+      return
+    }
     if (pageRef.current) pageRef.current.scrollTop = 0
     setView('homework')
     if (location.hash !== '#homework') history.pushState({ zyx: 'homework' }, '', '#homework')
@@ -59,7 +83,15 @@ export default function App() {
     }
   }
 
-  const onHomework = view === 'homework'
+  const onHomework = view === 'homework' && !!user
+
+  const signOut = async () => {
+    await logout()
+    setUser(null)
+    setHomework([])
+    history.replaceState(null, '', location.pathname + location.search)
+    setView('hero')
+  }
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-black">
@@ -105,8 +137,21 @@ export default function App() {
             </svg>
           </button>
 
+          {user && (
+            <div className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 z-40 flex items-center gap-1 text-xs text-white/60 sm:top-6 sm:right-8">
+              <span className="liquid-glass rounded-full px-3 py-2">
+                {user.name} · <span className="tabular-nums">{user.studentId}</span>
+                {user.isAdmin && <span className="ml-1.5 text-emerald-200/80">管理员</span>}
+              </span>
+              <button type="button" onClick={() => void signOut()} className="liquid-glass cursor-pointer rounded-full px-3 py-2 hover:text-white">
+                退出
+              </button>
+            </div>
+          )}
+
           <div className="relative">
             <HomeworkSection
+              isAdmin={!!user?.isAdmin}
               headingRef={headingRef}
               mood={mood}
               homework={homework}
@@ -121,6 +166,18 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      <LoginDialog
+        open={loginOpen}
+        onClose={() => setLoginOpen(false)}
+        onLoggedIn={(u) => {
+          setUser(u)
+          setLoginOpen(false)
+          if (pageRef.current) pageRef.current.scrollTop = 0
+          setView('homework')
+          if (location.hash !== '#homework') history.pushState({ zyx: 'homework' }, '', '#homework')
+        }}
+      />
     </main>
   )
 }
@@ -129,7 +186,10 @@ function Footer({ onHome }: { onHome: () => void }) {
   return (
     <footer className="px-4 pt-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] sm:px-8">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 border-t border-white/10 pt-8 text-xs text-white/40 sm:flex-row">
-        <span className="tracking-[0.2em]">作业箱 · 安静地写作业</span>
+        <span className="flex items-center gap-2 tracking-[0.2em]">
+          作业箱 · 安静地写作业
+          <AdminStats />
+        </span>
         <button type="button" onClick={onHome} className="cursor-pointer hover:text-white/80">
           回到车窗 ←
         </button>
