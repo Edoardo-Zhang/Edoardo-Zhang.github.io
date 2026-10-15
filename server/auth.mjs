@@ -51,7 +51,7 @@ export function createAuth(cfg, env = process.env) {
     secret = crypto.randomBytes(32).toString('hex')
     console.warn('注意：未设置 SESSION_SECRET，已临时生成；服务重启后所有人需要重新登录。')
   }
-  if (adminIds.size && !adminHash) console.warn('注意：设置了 ADMIN_STUDENT_IDS 但没有 ADMIN_PASSWORD_HASH，管理员将无法登录。')
+  if (adminIds.size && !adminHash) console.info('管理员按学号白名单直接登录（未设置 ADMIN_PASSWORD_HASH，无需口令）。')
   // 本机开发（http://localhost）以外一律加 Secure
   const insecureCookie = env.COOKIE_INSECURE === '1'
 
@@ -124,10 +124,10 @@ export function createAuth(cfg, env = process.env) {
     if (name.length > NAME_MAX) return reject(400, { error: `姓名不能超过 ${NAME_MAX} 个字` })
 
     const isAdmin = adminIds.has(studentId)
-    if (isAdmin) {
-      if (!adminHash) return res.status(503).json({ error: '管理员口令尚未设置：请在服务器上运行 node scripts/setup-admin.mjs <学号> 后重启后端' })
+    // 口令是**可选**的：配了 ADMIN_PASSWORD_HASH 才校验；没配就纯按学号白名单判定管理员。
+    if (isAdmin && adminHash) {
       if (password === undefined || password === null || password === '') return res.json({ needPassword: true })
-      if (!adminHash || !verifyPassword(password, adminHash)) return reject(401, { error: '管理员口令不正确', needPassword: true })
+      if (!verifyPassword(password, adminHash)) return reject(401, { error: '管理员口令不正确', needPassword: true })
     }
 
     // 首次登录把姓名绑定到学号；之后同一学号必须用同一姓名

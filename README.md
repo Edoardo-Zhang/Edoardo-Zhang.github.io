@@ -34,7 +34,7 @@ npm install && npm run dev
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/health` | 健康检查（含当前 bucket/前缀） |
-| POST | `/api/auth/login` | 姓名 + 10 位学号登录（首次绑定姓名）；管理员学号返回 `needPassword`，需带口令再登录 |
+| POST | `/api/auth/login` | 姓名 + 10 位学号登录（首次绑定姓名）；**若配置了 `ADMIN_PASSWORD_HASH`**，管理员学号会返回 `needPassword`，需带口令再登录一次 |
 | GET / POST | `/api/auth/me` / `/api/auth/logout` | 当前登录用户 / 退出 |
 | GET | `/api/homework` | 作业列表（按时间倒序，**需登录**，服务端内存缓存） |
 | POST | `/api/homework/prepare` | 传文件清单（可为空）→ 返回 `id` 与每个文件的预签名上传地址 |
@@ -64,11 +64,13 @@ npm install && npm run dev
 ## 登录与管理员
 
 - 同学：姓名 + 10 位学号即可登录（不是 10 位数字不让进）；首次登录把姓名绑定到学号，之后同一学号必须用同一姓名。会话 Cookie 30 天有效。
-- 管理员：在项目根目录运行一次（口令在终端里隐藏输入，只以 scrypt 哈希保存）：
+- 管理员（**默认不需要口令**，按学号白名单判定）：在项目根目录运行一次，写入 `server/.env` 并重启后端：
   ```bash
-  node scripts/setup-admin.mjs <你的10位学号>
+  node scripts/set-admins.mjs 1120260810 [更多学号...]   # 会顺带生成 SESSION_SECRET、清空口令
+  sudo systemctl restart zuoyexiang
   ```
-  它会把 `ADMIN_STUDENT_IDS`、`ADMIN_PASSWORD_HASH`、`SESSION_SECRET` 写进 `server/.env`。部署时把这份 `.env` 一并传到服务器并重启服务。
+  白名单里的学号用「姓名 + 学号」直接登录即管理员。以后**加管理员就再跑一次这个脚本**（或直接改 `server/.env` 的 `ADMIN_STUDENT_IDS=学号1,学号2`）。
+- 管理员**可选的**口令加固：想再要一道口令就运行 `node scripts/setup-admin.mjs <学号>`（口令在终端里隐藏输入，只存 scrypt 哈希）；把 `ADMIN_PASSWORD_HASH` 清空就恢复成免口令。
 - 登录限流只统计**失败**的尝试（每 IP 每分钟 20 次），全班在同一校园网出口下同时登录不受影响。
 
 ## 收作业同步到本机
@@ -96,6 +98,7 @@ D:\作业箱收件\<科目>_<截止日期>_<卡片id后6位>\<学号>_<姓名>\<
 BASE=http://127.0.0.1:3010 ADMIN_ID=<管理员学号> ADMIN_PASSWORD=<口令> node server/test-auth.mjs    # 登录 / 权限 / 收作业 / 统计
 BASE=http://127.0.0.1:3010 ADMIN_ID=<管理员学号> ADMIN_PASSWORD=<口令> node server/test-e2e.mjs     # 发布 / 附件 / 回滚
 BASE=http://127.0.0.1:3010 ADMIN_ID=<管理员学号> ADMIN_PASSWORD=<口令> node server/test-update.mjs  # 修改作业
+BASE=http://127.0.0.1:3011 ADMIN_ID=<管理员学号> node server/test-admin-nopassword.mjs                # 免口令管理员模式
 ```
 
 ## 备案期间暂停（当前状态）
