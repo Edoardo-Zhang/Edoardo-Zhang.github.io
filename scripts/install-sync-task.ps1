@@ -1,4 +1,4 @@
-# 安装"作业箱收件同步"计划任务：登录 Windows 时运行一次，之后每 30 分钟运行一次。
+﻿# 安装"作业箱收件同步"计划任务：登录 Windows 时运行一次，之后每 30 分钟运行一次。
 # 电脑关机/断网期间错过的运行会在下次可用时补上；同步脚本本身永不删除任何文件。
 # 用法（在项目根目录，普通 PowerShell 即可，无需管理员）：
 #   powershell -ExecutionPolicy Bypass -File scripts/install-sync-task.ps1
