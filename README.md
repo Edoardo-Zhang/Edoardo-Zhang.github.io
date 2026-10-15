@@ -101,33 +101,21 @@ BASE=http://127.0.0.1:3010 ADMIN_ID=<管理员学号> ADMIN_PASSWORD=<口令> no
 BASE=http://127.0.0.1:3011 ADMIN_ID=<管理员学号> node server/test-admin-nopassword.mjs                # 免口令管理员模式
 ```
 
-## 备案期间暂停（当前状态）
+## 当前线上状态（2026-10-15 起）
 
-备案审核期间站点必须对外关闭，因此两台服务器的 nginx 均已 **stop + disable**（80/443 无监听）；
-后端仍只监听本机 `127.0.0.1:3000`，外网不可达。
-
-备案通过后恢复（在要对外服务的机器上执行）：
-
-```bash
-sudo systemctl enable --now nginx
-```
-
-再把 DNSPod 的 A 记录指向该机公网 IP：上海 `43.142.131.119`（正式）／香港 `43.129.85.64`（临时）。
-
-证书：两台都是 Let's Encrypt，有效期至 2026-12-29；nginx 停止期间自动续期会失败，
-恢复后执行 `sudo certbot renew --force-renewal` 重新签发即可。
-
-## 部署（当前线上：腾讯云轻量 · 香港 · Ubuntu）
-
-> 为什么要香港：域名未备案时，指向**内地**服务器会被腾讯云拦截（HTTP 302 到备案拦截页、HTTPS 握手被重置）。
-> 上海那台（43.142.131.119）已完整部署、证书已签，**备案通过后把 A 记录改回去即可**（publish.ps1 -Server 43.142.131.119 -User root）。
-> 备案号下来后要加进页脚。
-
-| 项 | 当前 |
+| 项 | 值 |
 | --- | --- |
-| 在服务 | 香港 43.129.85.64（ubuntu 用户） |
-| 备用 | 上海 43.142.131.119（root 用户，备案用） |
-| 域名 | bitjiaxin.cn / www.bitjiaxin.cn（Let's Encrypt，自动续期） |
+| 站点 | **https://bitjiaxin.cn**（`www` 同样可用，http 自动跳 https） |
+| 服务器 | 腾讯云轻量 · **上海** · `43.142.131.119`（root 登录） |
+| 服务 | nginx（静态 + 反代）+ systemd `zuoyexiang`（Node 后端，只监听 127.0.0.1:3000） |
+| 证书 | Let's Encrypt，含 `bitjiaxin.cn` + `www.bitjiaxin.cn`，自动续期 |
+| 备案 | **浙ICP备2026086083号**（页脚展示并链接工信部）；公安联网备案需在开通 30 日内办理 |
+| 管理员 | 学号白名单（默认免口令）：`1120260810` |
+| 已退役 | 香港 `43.129.85.64`（备案期临时中转，可退订） |
+
+遇到 502/静态页 404 时：`systemctl status zuoyexiang nginx`；改完代码用上面的 `publish.ps1` 发布（默认目标已是上海）。
+
+## 部署（当前线上：腾讯云轻量 · 上海 · Ubuntu）
 
 1. **控制台**：防火墙放行 TCP 80/443；准备好 OSS 的 RAM 子账号密钥。
 2. **上传代码与产物**：把 `dist/`、`server/`（不含 node_modules）同步到服务器 `/opt/zuoyexiang/`，把 `server/.env`（`chmod 600`）单独传上去。

@@ -1,11 +1,11 @@
 # Publish zuoyexiang to the server: build -> pack -> upload -> unpack -> restart backend
 # Usage: powershell -ExecutionPolicy Bypass -File publish.ps1 -Key "D:\path\to\id_ed25519"
-#   HK (active):    -Server 43.129.85.64  -User ubuntu   (default)
-#   SH (standby):   -Server 43.142.131.119 -User root   (only after ICP filing)
+#   SH (active, default): -Server 43.142.131.119 -User root     # 上海，备案已通过
+#   HK (retired):         -Server 43.129.85.64    -User ubuntu   # 备案期临时中转，可退订
 param(
   [Parameter(Mandatory = $true)][string]$Key,
-  [string]$Server = '43.129.85.64',
-  [string]$User = 'ubuntu',
+  [string]$Server = '43.142.131.119',
+  [string]$User = 'root',       # 上海那台用 root；香港那台是 ubuntu
   [switch]$SkipBuild
 )
 $ErrorActionPreference = 'Stop'
