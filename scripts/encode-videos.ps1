@@ -16,7 +16,7 @@ foreach ($name in @('golden-hour', 'still-water', 'deep-forest', 'quiet-dawn')) 
 
   # 横版（电脑 / 平板 / 横屏手机）：保持源帧率 24fps，1280x720
   & $Ffmpeg -hide_banner -loglevel error -i $inputFile -map 0:v:0 -an -vf 'fps=24' `
-    -c:v libx264 -preset slower -crf 23 -profile:v high -pix_fmt yuv420p -g 48 `
+    -c:v libx264 -preset slower -crf 26 -profile:v high -pix_fmt yuv420p -g 48 `
     -movflags +faststart -map_metadata -1 -y $videoFile
   if ($LASTEXITCODE -ne 0) { throw "Video encode failed: $name" }
 

@@ -41,8 +41,18 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
   // The carousel keeps running on the homework page too, so the backdrop never loops a single clip.
   const { active, ready, select, advance, markReady } = useSceneCycle(SCENES.length)
   const phone = usePhoneLayout()
-  // 按顺序预取：当前这段完整下载后才开始下载下一段，弱网下两段不会互相抢带宽。
-  const warmIndex = ready[active] ? (active + 1) % SCENES.length : null
+  // 按顺序预取：当前这段完整下载后，依次下载后面还没下载完的片段（一次只下一段，互不抢带宽）。
+  // 第一轮过后四段都已缓存（7 天），之后每次切换都不再等待。
+  let warmIndex: number | null = null
+  if (ready[active]) {
+    for (let step = 1; step < SCENES.length; step++) {
+      const i = (active + step) % SCENES.length
+      if (!ready[i]) {
+        warmIndex = i
+        break
+      }
+    }
+  }
 
   // 字体颜色与画面交叉淡化同时开始、同样时长、同一缓动：字色始终跟着画面走，不提前也不滞后。
   const isForest = active === FOREST
