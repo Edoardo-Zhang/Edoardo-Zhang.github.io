@@ -1,13 +1,32 @@
-import { useEffect, useRef, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { FADE_MS, useSceneCycle } from '../hooks/useSceneCycle'
 import ScenePlayer from './ScenePlayer'
 
 const SCENES = [
-  { name: '金色时刻', src: 'input-assets/golden-hour-v2.mp4', poster: 'input-assets/golden-hour-v2.webp' },
-  { name: '静水', src: 'input-assets/still-water-v2.mp4', poster: 'input-assets/still-water-v2.webp' },
-  { name: '深林', src: 'input-assets/deep-forest-v2.mp4', poster: 'input-assets/deep-forest-v2.webp' },
-  { name: '静谧黎明', src: 'input-assets/quiet-dawn-v2.mp4', poster: 'input-assets/quiet-dawn-v2.webp' },
+  { name: '金色时刻', file: 'golden-hour' },
+  { name: '静水', file: 'still-water' },
+  { name: '深林', file: 'deep-forest' },
+  { name: '静谧黎明', file: 'quiet-dawn' },
 ] as const
+
+// 竖屏手机只看得到画面中间一条：给它专门裁好的竖版小视频（404×720，约为横版的 1/5）。
+// 换素材时改版本号，避开浏览器的 7 天缓存；index.html 里的首帧预载与静帧也要同步。
+const PHONE_QUERY = '(orientation: portrait) and (max-width: 600px)'
+const sceneAssets = (file: string, phone: boolean) => {
+  const base = `input-assets/${file}-v3${phone ? '-m' : ''}`
+  return { src: `${base}.mp4`, poster: `${base}.webp` }
+}
+
+function usePhoneLayout() {
+  const [phone, setPhone] = useState(() => window.matchMedia(PHONE_QUERY).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE_QUERY)
+    const onChange = () => setPhone(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return phone
+}
 
 const FOREST = 2
 
@@ -21,6 +40,7 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
   const pointerFrame = useRef<number | null>(null)
   // The carousel keeps running on the homework page too, so the backdrop never loops a single clip.
   const { active, ready, select, advance, markReady } = useSceneCycle(SCENES.length)
+  const phone = usePhoneLayout()
   // 按顺序预取：当前这段完整下载后才开始下载下一段，弱网下两段不会互相抢带宽。
   const warmIndex = ready[active] ? (active + 1) % SCENES.length : null
 
@@ -66,9 +86,8 @@ export default function Hero({ active: visible = true, onGetHomework }: HeroProp
       >
         {SCENES.map((s, i) => (
           <ScenePlayer
-            key={s.src}
-            src={s.src}
-            poster={s.poster}
+            key={`${s.file}-${phone ? 'm' : 'd'}`}
+            {...sceneAssets(s.file, phone)}
             active={i === active}
             warm={i === warmIndex}
             z={i === active ? 2 : 1}

@@ -145,12 +145,13 @@ OSS 侧要求：桶**私有**；CORS 允许站点来源（浏览器直传需要�
 
 | 文件 | 用途 |
 | --- | --- |
-| `golden-hour-v2.mp4` 等四段 MP4 | 四种风景，H.264 / 720p，已去除未使用的音轨并启用 faststart |
-| `golden-hour-v2.webp` 等四张 WebP | 视频准备期间立即显示的首帧画面 |
+| `golden-hour-v3.mp4` 等四段 MP4 | 四种风景（电脑 / 平板 / 横屏），H.264 1280×720、24fps，无音轨，faststart |
+| `golden-hour-v3-m.mp4` 等四段 MP4 | 竖屏手机专用：只裁画面中间 404×720，单段 100–250 KB |
+| `*-v3.webp` / `*-v3-m.webp` | 对应的首帧静图：始终垫在视频下面，视频画出第一帧前显示它，不会黑屏 |
 | `window.webp` | 透明列车车厢前景 |
 | `headline-serif-traced.ttf` | 标题字体（仅含标题用到的 19 个字形，缺字如"作业"回退到系统衬线体） |
 
-未压缩的原视频保存在 `source-assets/video-originals/`，不会被打包进网站。四段网页视频合计约 5 MB（原先约 28 MB），每段视频保留 1280×720 分辨率；这是源素材的上限，真正提升大屏细节需要更高分辨率的原片。可用 `scripts/encode-videos.ps1` 和 FFmpeg 重新生成视频及首帧图；换素材时请使用新的版本名，并同步更新 `src/components/Hero.tsx` 与 `index.html`，以避开浏览器的 7 天缓存。
+未压缩的原视频保存在 `source-assets/video-originals/`，不会被打包进网站。四段横版视频合计约 3.4 MB、竖屏手机版合计约 0.74 MB（最早约 28 MB）；手机按 `(orientation: portrait) and (max-width: 600px)` 自动选用竖版，每段视频保留 1280×720 分辨率；这是源素材的上限，真正提升大屏细节需要更高分辨率的原片。可用 `scripts/encode-videos.ps1` 和 FFmpeg 重新生成视频及首帧图；换素材时请使用新的版本名，并同步更新 `src/components/Hero.tsx` 与 `index.html`，以避开浏览器的 7 天缓存。
 
 ## 行为说明
 

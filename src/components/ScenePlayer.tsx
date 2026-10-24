@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /** Hand over to the next scene slightly before the clip's last frame. */
 const END_MARGIN_S = 0.15
@@ -36,6 +36,8 @@ const fullyBuffered = (v: HTMLVideoElement) =>
  */
 export default function ScenePlayer({ src, poster, active, z, fadeMs, onNearEnd, onReady, warm = false }: ScenePlayerProps) {
   const ref = useRef<HTMLVideoElement>(null)
+  /** The video has actually drawn a frame — until then the still image underneath shows (never black). */
+  const [hasFrame, setHasFrame] = useState(false)
   const nearEndRef = useRef(onNearEnd)
   const readyRef = useRef(onReady)
 
@@ -53,6 +55,21 @@ export default function ScenePlayer({ src, poster, active, z, fadeMs, onNearEnd,
       v.load()
     }
   }, [active, warm])
+
+  useEffect(() => {
+    const v = ref.current
+    if (!v) return
+    const on = () => v.readyState >= v.HAVE_CURRENT_DATA && setHasFrame(true)
+    const off = () => setHasFrame(false)
+    v.addEventListener('loadeddata', on)
+    v.addEventListener('playing', on)
+    v.addEventListener('emptied', off)
+    return () => {
+      v.removeEventListener('loadeddata', on)
+      v.removeEventListener('playing', on)
+      v.removeEventListener('emptied', off)
+    }
+  }, [])
 
   // Report "fully buffered" once; also retry real errors with back-off (never while still downloading).
   useEffect(() => {
@@ -175,15 +192,11 @@ export default function ScenePlayer({ src, poster, active, z, fadeMs, onNearEnd,
   }, [active, fadeMs])
 
   return (
-    <video
-      ref={ref}
-      src={src}
-      poster={active || warm ? poster : undefined}
-      muted
-      playsInline
-      preload={active || warm ? 'auto' : 'none'}
-      disablePictureInPicture
-      className="absolute inset-0 h-full w-full object-cover transition-opacity ease-in-out"
+    // One layer per scene: a still image that is always there, with the video fading in on top once it
+    // has a real frame. The cross-fade between scenes happens on the layer, so a scene that is still
+    // loading shows its still instead of black.
+    <div
+      className="absolute inset-0 transition-opacity ease-in-out"
       style={{
         zIndex: z,
         opacity: active ? 1 : 0,
@@ -191,6 +204,25 @@ export default function ScenePlayer({ src, poster, active, z, fadeMs, onNearEnd,
         // Outgoing scene: stay opaque under the incoming one, then drop out once it is covered.
         transitionDelay: active ? '0ms' : `${fadeMs}ms`,
       }}
-    />
+    >
+      <img
+        src={poster}
+        alt=""
+        decoding="async"
+        fetchPriority={active ? 'high' : 'low'}
+        className="absolute inset-0 h-full w-full object-cover select-none"
+        draggable={false}
+      />
+      <video
+        ref={ref}
+        src={src}
+        muted
+        playsInline
+        preload={active || warm ? 'auto' : 'none'}
+        disablePictureInPicture
+        className="absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out"
+        style={{ opacity: hasFrame ? 1 : 0 }}
+      />
+    </div>
   )
 }

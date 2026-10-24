@@ -8,15 +8,19 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23000'/%3E%3Cpath d='M9 12h14v10a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2z' fill='none' stroke='%23fff' stroke-width='1.8'/%3E%3Cpath d='M8 12l3-4h10l3 4' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E" />
     <link rel="preload" href="input-assets/headline-serif-traced.ttf" as="font" type="font/ttf" crossorigin />
     <link rel="preload" href="input-assets/window.webp" as="image" type="image/webp" />
-    <link rel="preload" href="input-assets/golden-hour-v2.webp" as="image" type="image/webp" fetchpriority="high" />
+    <!-- 首帧静图：竖屏手机用裁好的小图，其余用横版（与 Hero.tsx 的 PHONE_QUERY 保持一致） -->
+    <link rel="preload" href="input-assets/golden-hour-v3-m.webp" as="image" type="image/webp" fetchpriority="high" media="(orientation: portrait) and (max-width: 600px)" />
+    <link rel="preload" href="input-assets/golden-hour-v3.webp" as="image" type="image/webp" fetchpriority="high" media="not ((orientation: portrait) and (max-width: 600px))" />
     <title>作业箱</title>
     <style>
       html, body { background: #000; margin: 0; }
+      .boot-still { position: fixed; inset: 0; background: #000 url(input-assets/golden-hour-v3.webp) center / cover no-repeat; }
+      @media (orientation: portrait) and (max-width: 600px) { .boot-still { background-image: url(input-assets/golden-hour-v3-m.webp); } }
     </style>
   </head>
   <body>
     <!-- 脚本还在下载时（弱网下可能要好几秒）先显示第一段风景的静帧，避免黑屏；React 首次渲染时会自动替换掉它 -->
-    <div id="root"><div style="position:fixed;inset:0;background:#000 url(input-assets/golden-hour-v2.webp) center/cover no-repeat" aria-hidden="true"></div></div>
+    <div id="root"><div class="boot-still" aria-hidden="true"></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
