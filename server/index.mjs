@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readOssConfig, presign } from './oss.mjs'
-import { putObject, getJson, deleteObject, objectExists, listKeys, downloadUrl } from './store.mjs'
+import { putObject, getJson, deleteObject, objectExists, listKeys, downloadUrl, imageViewUrl, IMAGE_EXT_RE } from './store.mjs'
 import { createAuth } from './auth.mjs'
 import { createSubmissions } from './submissions.mjs'
 
@@ -286,6 +286,13 @@ app.get('/api/download', requireUser, (req, res, next) => {
   try {
     const key = String(req.query.key || '')
     if (!key.startsWith(`${cfg.prefix}files/`) || key.includes('..')) return fail(res, 400, 'key 不合法')
+    // ?view=thumb|full：图片在页面里直接显示（缩放过的），不触发下载
+    const view = String(req.query.view || '')
+    if ((view === 'thumb' || view === 'full') && IMAGE_EXT_RE.test(key)) {
+      // 签名链接 1 小时有效；让浏览器缓存这个跳转 30 分钟，同一张缩略图不必反复请求
+      res.setHeader('Cache-Control', 'private, max-age=1800')
+      return res.redirect(302, imageViewUrl(cfg, key, view))
+    }
     res.setHeader('Cache-Control', 'no-store')
     res.redirect(302, downloadUrl(cfg, key, String(req.query.name || 'download')))
   } catch (err) {

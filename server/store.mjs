@@ -77,3 +77,25 @@ export function downloadUrl(cfg, key, filename, expiresIn = 3600) {
     subResources: { 'response-content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(safe)}` },
   })
 }
+
+// ---- 图片在线查看 ----
+// 常见可显示的图片格式；HEIC/HEIF（iPhone 照片）由 OSS 图片处理转成 JPEG 再显示。
+export const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i
+const PROCESS = {
+  // 卡片 / 统计里的缩略图：最长边 480，转 WebP（通常几十 KB）
+  thumb: 'image/auto-orient,1/resize,m_lfit,w_480,h_480/format,webp',
+  // 点开后的大图：最长边 1920，足够看清又不必下载几 MB 的原图
+  full: 'image/auto-orient,1/resize,m_lfit,w_1920,h_1920/quality,q_85',
+}
+
+/** 图片的在线查看链接（inline，不触发下载）；variant 为 thumb / full。 */
+export function imageViewUrl(cfg, key, variant = 'full', expiresIn = 3600) {
+  let proc = PROCESS[variant] || PROCESS.full
+  if (variant === 'full' && /\.(heic|heif)$/i.test(key)) proc += '/format,jpg'
+  return presign(cfg, {
+    method: 'GET',
+    key,
+    expiresIn,
+    subResources: { 'x-oss-process': proc, 'response-content-disposition': 'inline' },
+  })
+}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { adminFileHref, fetchAdminStats, unbindStudent, type AdminStats as Stats, type StatsCard } from '../lib/api'
-import { formatBytes, formatDate } from '../lib/homework'
+import { adminFileHref, adminImageViewHref, fetchAdminStats, unbindStudent, type AdminStats as Stats, type StatsCard } from '../lib/api'
+import { formatBytes, formatDate, isImageFile } from '../lib/homework'
+import ImageViewer, { type ViewerImage } from './ImageViewer'
 
 type Tab = 'submitted' | 'missing' | 'late'
 
@@ -134,6 +135,7 @@ function CardDetail({
   setQuery: (q: string) => void
   onChanged: () => void
 }) {
+  const [viewer, setViewer] = useState<{ images: ViewerImage[]; index: number } | null>(null)
   const pct = rosterSize ? Math.round((card.submitted.length / rosterSize) * 100) : 0
   const q = query.trim()
   const match = (r: { name: string; studentId: string }) => !q || r.name.includes(q) || r.studentId.includes(q)
@@ -234,8 +236,29 @@ function CardDetail({
                     {s.versions > 1 && ` · 第 ${s.versions} 次提交`}
                   </span>
                 </div>
+                {s.files.some((f) => isImageFile(f)) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5 pl-0 sm:pl-[7.75rem]">
+                    {s.files.filter((f) => isImageFile(f)).map((f, i, arr) => (
+                      <button
+                        key={f.key}
+                        type="button"
+                        title={f.name}
+                        aria-label={`查看图片：${f.name}`}
+                        onClick={() =>
+                          setViewer({
+                            index: i,
+                            images: arr.map((x) => ({ name: `${s.name} · ${x.name}`, src: adminImageViewHref(x.key, x.name, 'full'), downloadHref: adminFileHref(x.key, x.name) })),
+                          })
+                        }
+                        className="h-16 w-16 cursor-zoom-in overflow-hidden rounded-lg bg-white/[0.06]"
+                      >
+                        <img src={adminImageViewHref(f.key, f.name, 'thumb')} alt={f.name} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <ul className="mt-1.5 space-y-1 pl-0 sm:pl-[7.75rem]">
-                  {s.files.map((f) => (
+                  {s.files.filter((f) => !isImageFile(f)).map((f) => (
                     <li key={f.key} className="flex items-center gap-2 text-xs">
                       <span className="min-w-0 flex-1 truncate text-white/70" title={f.name}>
                         {f.name}
@@ -255,6 +278,7 @@ function CardDetail({
           </ul>
         )}
       </div>
+      {viewer && <ImageViewer images={viewer.images} index={viewer.index} onClose={() => setViewer(null)} />}
     </section>
   )
 }

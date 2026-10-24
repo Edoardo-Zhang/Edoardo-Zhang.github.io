@@ -2,7 +2,7 @@
 // 布局：<prefix>submissions/<cardId>/<studentId>/<version>/{n-rand.ext, meta.json}
 //       <prefix>submissions/<cardId>/<studentId>/latest.json   ← 最新一次提交的 meta 副本
 import crypto from 'node:crypto'
-import { putObject, getJson, deleteObject, objectExists, listKeys, downloadUrl } from './store.mjs'
+import { putObject, getJson, deleteObject, objectExists, listKeys, downloadUrl, imageViewUrl, IMAGE_EXT_RE } from './store.mjs'
 
 const VERSION_RE = /^\d{8}T\d{6}Z-[0-9a-f]{6}$/
 
@@ -156,6 +156,11 @@ export function createSubmissions({ cfg, getCard, makeUploads, listUsers, listCa
   function fileLink(req, res) {
     const key = String(req.query.key || '')
     if (!key.startsWith(root) || key.includes('..') || key.endsWith('.json')) return fail(res, 400, 'key 不合法')
+    const view = String(req.query.view || '')
+    if ((view === 'thumb' || view === 'full') && IMAGE_EXT_RE.test(key)) {
+      res.setHeader('Cache-Control', 'private, max-age=1800')
+      return res.redirect(302, imageViewUrl(cfg, key, view))
+    }
     res.setHeader('Cache-Control', 'no-store')
     res.redirect(302, downloadUrl(cfg, key, String(req.query.name || 'download')))
   }

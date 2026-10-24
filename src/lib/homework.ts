@@ -164,3 +164,7 @@ export function formatDate(ts: number) {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+const IMAGE_RE = /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i
+/** 能否在页面里直接显示为图片（按文件名或 MIME 判断；与服务端 IMAGE_EXT_RE 保持一致）。 */
+export const isImageFile = (f: { name: string; type?: string }) => IMAGE_RE.test(f.name) || /^image\//.test(f.type || '')

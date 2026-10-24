@@ -6,12 +6,14 @@ import {
   fileKind,
   formatBytes,
   formatDate,
+  isImageFile,
   removeHomework,
   storageLabel,
   type AttachmentMeta,
   type Homework,
 } from '../lib/homework'
-import { downloadHref } from '../lib/api'
+import { downloadHref, imageViewHref } from '../lib/api'
+import ImageViewer from './ImageViewer'
 import SubmitPanel from './SubmitPanel'
 
 const SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
@@ -157,6 +159,11 @@ function HomeworkCard({
   onRemoved: (id: string) => void
 }) {
   const [confirming, setConfirming] = useState(false)
+  /** Index of the image open in the viewer, or null. */
+  const [viewing, setViewing] = useState<number | null>(null)
+  // 图片直接在卡片上显示缩略图、点开即看；其它文件仍按列表下载
+  const images = hw.files.filter((f) => f.key && isImageFile(f))
+  const others = hw.files.filter((f) => !(f.key && isImageFile(f)))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -201,9 +208,33 @@ function HomeworkCard({
         ))}
       </ol>
 
-      {hw.files.length > 0 && (
-        <ul className="mt-6 space-y-2 border-t border-white/10 pt-5">
-          {hw.files.map((f, i) => (
+      {images.length > 0 && (
+        <div className={`mt-6 grid gap-2 border-t border-white/10 pt-5 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-3'}`}>
+          {images.map((f, i) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setViewing(i)}
+              title={f.name}
+              aria-label={`查看图片：${f.name}`}
+              className={`group relative cursor-zoom-in overflow-hidden rounded-xl bg-white/[0.05] ${images.length === 1 ? 'aspect-[16/10]' : 'aspect-square'}`}
+            >
+              <img
+                src={imageViewHref(f.key!, f.name, 'thumb')}
+                alt={f.name}
+                // 缩略图只有约 20 KB，直接加载；作业页是淡入的独立视图，懒加载在部分浏览器里会迟迟不触发
+                loading="eager"
+                decoding="async"
+                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+              />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {others.length > 0 && (
+        <ul className={`space-y-2 ${images.length ? 'mt-3' : 'mt-6 border-t border-white/10 pt-5'}`}>
+          {others.map((f, i) => (
             <li key={i} className="flex items-center gap-3 text-sm">
               <span className="w-12 shrink-0 truncate rounded-md bg-white/[0.07] px-1.5 py-1 text-center text-[0.62rem] tracking-wider text-white/70">
                 {fileKind(f)}
@@ -229,6 +260,14 @@ function HomeworkCard({
             </li>
           ))}
         </ul>
+      )}
+
+      {viewing !== null && (
+        <ImageViewer
+          index={viewing}
+          onClose={() => setViewing(null)}
+          images={images.map((f) => ({ name: f.name, src: imageViewHref(f.key!, f.name, 'full'), downloadHref: downloadHref(f.key!, f.name) }))}
+        />
       )}
 
       {hw.collect && <SubmitPanel cardId={hw.id} due={hw.due} />}

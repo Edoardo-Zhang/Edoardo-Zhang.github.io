@@ -301,3 +301,7 @@ export async function unbindStudent(studentId: string): Promise<void> {
   const res = await fetch(`/api/admin/users/${encodeURIComponent(studentId)}`, { method: 'DELETE' })
   if (!res.ok) await fail(res, '解除绑定失败')
 }
+
+/** 图片在页面里直接显示（服务端缩放：thumb 缩略图 / full 大图），不触发下载。 */
+export const imageViewHref = (key: string, name: string, view: 'thumb' | 'full') => `${downloadHref(key, name)}&view=${view}`
+export const adminImageViewHref = (key: string, name: string, view: 'thumb' | 'full') => `${adminFileHref(key, name)}&view=${view}`
