@@ -190,14 +190,19 @@ function Footer({ onHome }: { onHome: () => void }) {
           作业箱 · 安静地写作业
           <AdminStats />
         </span>
-        <a
-          href="https://beian.miit.gov.cn/"
-          target="_blank"
-          rel="noreferrer"
-          className="cursor-pointer tracking-[0.05em] hover:text-white/70"
-        >
-          浙ICP备2026086083号
-        </a>
+        <span className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 tracking-[0.05em]">
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="cursor-pointer hover:text-white/70">
+            浙ICP备2026086083号
+          </a>
+          <a
+            href="https://beian.mps.gov.cn/#/query/webSearch?code=33041102000733"
+            target="_blank"
+            rel="noreferrer"
+            className="cursor-pointer hover:text-white/70"
+          >
+            浙公网安备33041102000733号
+          </a>
+        </span>
         <button type="button" onClick={onHome} className="cursor-pointer hover:text-white/80">
           回到车窗 ←
         </button>
