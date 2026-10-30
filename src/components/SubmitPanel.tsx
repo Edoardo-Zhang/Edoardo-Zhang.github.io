@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type DragEvent } from 'react'
 import { fetchMySubmission, submitHomework, type Submission } from '../lib/api'
 import { MAX_FILE_BYTES, fileKind, formatBytes, formatDate } from '../lib/homework'
+import LocalFileViewer from './FilePreview'
+import { previewKindOf, useFileUrls } from '../lib/filePreview'
 
 /** 收作业卡片底部的“交作业”区：显示自己的提交状态，可提交 / 重新提交。 */
 export default function SubmitPanel({ cardId, due }: { cardId: string; due?: string }) {
@@ -12,6 +14,9 @@ export default function SubmitPanel({ cardId, due }: { cardId: string; due?: str
   const [progress, setProgress] = useState<{ index: number; ratio: number; attempt: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [justDone, setJustDone] = useState(false)
+  // 上传前的本地预览：objectURL 随文件列表变化自动释放
+  const [preview, setPreview] = useState<File | null>(null)
+  const fileUrls = useFileUrls(files)
 
   useEffect(() => {
     let alive = true
@@ -25,6 +30,7 @@ export default function SubmitPanel({ cardId, due }: { cardId: string; due?: str
 
   // 打开卡片那一刻是否已过截止（北京时间当天 23:59:59），只用于提示文案
   const [pastDue] = useState(() => !!due && Date.now() > Date.parse(`${due}T23:59:59+08:00`))
+
 
   const addFiles = useCallback((list: FileList | File[]) => {
     const incoming = Array.from(list)
@@ -53,6 +59,7 @@ export default function SubmitPanel({ cardId, due }: { cardId: string; due?: str
       const s = await submitHomework(cardId, files, (index, ratio, attempt) => setProgress({ index, ratio, attempt }))
       setMine(s)
       setFiles([])
+      setPreview(null)
       setOpen(false)
       setJustDone(true)
       window.setTimeout(() => setJustDone(false), 4000)
@@ -135,12 +142,37 @@ export default function SubmitPanel({ cardId, due }: { cardId: string; due?: str
 
           {files.length > 0 && (
             <ul className="mt-3 space-y-2">
-              {files.map((f, i) => (
+              {files.map((f, i) => {
+                const url = fileUrls.get(f)
+                const kind = previewKindOf(f)
+                const canPreview = !!url && !!kind
+                return (
                 <li key={`${f.name}:${f.size}`} className="flex items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2 text-sm">
-                  <span className="w-10 shrink-0 truncate text-center text-[0.6rem] tracking-wider text-white/60">{fileKind(f)}</span>
+                  {canPreview && kind === 'image' ? (
+                    <button
+                      type="button"
+                      onClick={() => setPreview(f)}
+                      aria-label={`预览 ${f.name}`}
+                      className="shrink-0 cursor-pointer overflow-hidden rounded-md ring-1 ring-white/15 transition-opacity hover:opacity-80"
+                    >
+                      <img src={url} alt="" loading="lazy" decoding="async" className="h-9 w-9 object-cover" />
+                    </button>
+                  ) : (
+                    <span className="w-10 shrink-0 truncate text-center text-[0.6rem] tracking-wider text-white/60">{fileKind(f)}</span>
+                  )}
                   <span className="min-w-0 flex-1 truncate text-white/85" title={f.name}>
                     {f.name}
                   </span>
+                  {canPreview && kind !== 'image' && (
+                    <button
+                      type="button"
+                      onClick={() => setPreview(f)}
+                      className="shrink-0 cursor-pointer rounded px-1.5 text-xs text-white/45 transition-colors hover:text-white"
+                      aria-label={`预览 ${f.name}`}
+                    >
+                      预览
+                    </button>
+                  )}
                   <span className="shrink-0 text-xs text-white/40">
                     {progress && progress.index === i
                       ? progress.attempt > 1
@@ -153,7 +185,10 @@ export default function SubmitPanel({ cardId, due }: { cardId: string; due?: str
                   {!busy && (
                     <button
                       type="button"
-                      onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                      onClick={() => {
+                        if (preview === f) setPreview(null)
+                        setFiles((prev) => prev.filter((_, j) => j !== i))
+                      }}
                       aria-label={`移除 ${f.name}`}
                       className="cursor-pointer px-1 text-white/35 hover:text-white"
                     >
@@ -161,7 +196,8 @@ export default function SubmitPanel({ cardId, due }: { cardId: string; due?: str
                     </button>
                   )}
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
 
@@ -185,6 +221,7 @@ export default function SubmitPanel({ cardId, due }: { cardId: string; due?: str
               onClick={() => {
                 setOpen(false)
                 setFiles([])
+                setPreview(null)
                 setError(null)
               }}
               disabled={busy}
@@ -202,6 +239,10 @@ export default function SubmitPanel({ cardId, due }: { cardId: string; due?: str
             </button>
           </div>
         </div>
+      )}
+
+      {preview && fileUrls.get(preview) && (
+        <LocalFileViewer file={preview} url={fileUrls.get(preview)!} onClose={() => setPreview(null)} />
       )}
     </div>
   )
