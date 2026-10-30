@@ -307,7 +307,6 @@ const submissions = createSubmissions({
   makeUploads,
   listUsers: auth.listUsers,
   listCards,
-  isAdminId: auth.isAdminId,
 })
 app.post('/api/homework/:id/submit/prepare', requireUser, wrap(submissions.prepare))
 app.post('/api/homework/:id/submit/commit', requireUser, wrap(submissions.commit))

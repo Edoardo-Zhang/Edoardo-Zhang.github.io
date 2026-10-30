@@ -20,9 +20,8 @@ export function deadlineOf(due) {
  * @param {(res, id: string, files: unknown, dirOf: (i:number, ext:string)=>string) => object[]|null} deps.makeUploads
  * @param {() => Promise<object[]>} deps.listUsers
  * @param {() => Promise<object[]>} deps.listCards
- * @param {(studentId: string) => boolean} deps.isAdminId  管理员不计入应交名单
  */
-export function createSubmissions({ cfg, getCard, makeUploads, listUsers, listCards, isAdminId }) {
+export function createSubmissions({ cfg, getCard, makeUploads, listUsers, listCards }) {
   const root = `${cfg.prefix}submissions/`
   const studentDir = (cardId, studentId) => `${root}${cardId}/${studentId}/`
   const versionDir = (cardId, studentId, version) => `${studentDir(cardId, studentId)}${version}/`
@@ -125,7 +124,8 @@ export function createSubmissions({ cfg, getCard, makeUploads, listUsers, listCa
   async function stats(req, res) {
     const [users, cards] = await Promise.all([listUsers(), listCards()])
     const collectCards = cards.filter((c) => c.collect)
-    const roster = users.filter((u) => !isAdminId(u.studentId)).map((u) => ({ studentId: u.studentId, name: u.name }))
+    // 管理员也是班里的一员：他/她没交时同样会出现在"未交"名单里
+    const roster = users.map((u) => ({ studentId: u.studentId, name: u.name }))
     const result = []
     for (const card of collectCards) {
       const latest = await latestByStudent(card.id)

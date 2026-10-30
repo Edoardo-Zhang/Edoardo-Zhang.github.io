@@ -25,7 +25,6 @@ const DIR = process.env.SYNC_DIR || 'D:\\作业箱收件'
 const MANIFEST = path.join(DIR, '_manifest.json')
 const LOG = path.join(DIR, '_sync.log')
 const LOCK = path.join(DIR, '_sync.lock')
-const adminIds = new Set(String(process.env.ADMIN_STUDENT_IDS || '').split(/[,\s]+/).filter(Boolean))
 
 fs.mkdirSync(DIR, { recursive: true })
 
@@ -103,7 +102,7 @@ async function main() {
 
   const metaKeys = keys.filter((k) => k.endsWith('/meta.json'))
   const users = (await Promise.all((await listKeys(cfg, `${cfg.prefix}users/`)).filter((k) => k.endsWith('.json')).map((k) => getJson(cfg, k).catch(() => null))))
-    .filter((u) => u?.studentId && !adminIds.has(u.studentId))
+    .filter((u) => u?.studentId)
 
   let fetched = 0
   let skipped = 0
