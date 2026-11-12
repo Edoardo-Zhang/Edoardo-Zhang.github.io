@@ -96,8 +96,9 @@ async function main() {
   try {
     keys = await listKeys(cfg, root)
   } catch (err) {
+    // 离线属于"下次再说"，不是失败：退出码 0，免得计划任务被标成红色失败
     log(`无法连接 OSS（${err.message}），可能未联网，下次再同步。`)
-    return 2
+    return 0
   }
 
   const metaKeys = keys.filter((k) => k.endsWith('/meta.json'))
